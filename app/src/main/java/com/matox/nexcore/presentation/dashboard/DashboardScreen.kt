@@ -55,6 +55,10 @@ fun DashboardScreen(
     onNavigateToPhoneInfo: () -> Unit = {},
     onNavigateToRamDetail: () -> Unit = {},
     onNavigateToBattery: () -> Unit = {},
+    onNavigateToCpu: () -> Unit = {},
+    onNavigateToDataUsage: () -> Unit = {},
+    onNavigateToWifi: () -> Unit = {},
+    onNavigateToSensors: () -> Unit = {},
     onBottomNavClick: (BottomNavItem) -> Unit = {},
 ) {
     val viewModel: DashboardViewModel = viewModel(
@@ -73,6 +77,10 @@ fun DashboardScreen(
             when (metric.id) {
                 MetricType.RAM -> onNavigateToRamDetail()
                 MetricType.BATTERY -> onNavigateToBattery()
+                MetricType.CPU -> onNavigateToCpu()
+                MetricType.DATA_USAGE -> onNavigateToDataUsage()
+                MetricType.WIFI -> onNavigateToWifi()
+                MetricType.SENSORS -> onNavigateToSensors()
                 else -> Unit
             }
         },
@@ -83,10 +91,17 @@ fun DashboardScreen(
                 "qa_storage" -> onNavigateToStorageAnalyzer()
                 "qa_apps" -> onNavigateToAppManager()
                 "qa_phone" -> onNavigateToPhoneInfo()
+                "qa_wifi" -> onNavigateToWifi()
+                "qa_sensor" -> onNavigateToSensors()
+                "qa_network" -> onNavigateToWifi()
             }
         },
         onInfoCardClick = { card ->
-            if (card.id == "info_apps") onNavigateToAppManager()
+            when (card.id) {
+                "info_apps" -> onNavigateToAppManager()
+                "info_data" -> onNavigateToDataUsage()
+                else -> Unit
+            }
         },
         onBottomNavClick = onBottomNavClick,
     )

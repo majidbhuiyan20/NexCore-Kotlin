@@ -1,0 +1,153 @@
+package com.matox.nexcore.presentation.cpu.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.matox.nexcore.ui.theme.CardStroke
+import com.matox.nexcore.ui.theme.MetricCyan
+import com.matox.nexcore.ui.theme.MetricOrange
+import com.matox.nexcore.ui.theme.MetricViolet
+import com.matox.nexcore.ui.theme.Surface
+import com.matox.nexcore.ui.theme.TextPrimary
+import com.matox.nexcore.ui.theme.TextSecondary
+
+/**
+ * Premium top bar for the CPU Monitor screen — mirrors `BatteryTopBar`
+ * but with `MetricOrange` accents so the screen reads as the
+ * "performance / system" destination.
+ */
+@Composable
+fun CpuTopBar(
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onSearchClick: () -> Unit = {},
+    onMoreClick: () -> Unit = {},
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .shadow(
+                    elevation = 6.dp,
+                    shape = RoundedCornerShape(24.dp),
+                    ambientColor = MetricOrange.copy(alpha = 0.18f),
+                    spotColor = Color.Black.copy(alpha = 0.30f),
+                )
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Surface, Surface.copy(alpha = 0.85f)),
+                    ),
+                )
+                .border(1.dp, CardStroke, RoundedCornerShape(24.dp))
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MetricOrange.copy(alpha = 0.20f))
+                    .clickable { onBackClick() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MetricOrange,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(
+                    text = "CPU",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = TextPrimary,
+                )
+                Text(
+                    text = "Live device telemetry",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+            }
+
+            GlassyIconButton(
+                icon = Icons.Outlined.Search,
+                contentDescription = "Search",
+                onClick = onSearchClick,
+                accent = MetricCyan,
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            GlassyIconButton(
+                icon = Icons.Outlined.MoreVert,
+                contentDescription = "More options",
+                onClick = onMoreClick,
+                accent = MetricViolet,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GlassyIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    accent: Color,
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(accent.copy(alpha = 0.18f))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = accent,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}

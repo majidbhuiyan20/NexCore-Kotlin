@@ -92,7 +92,7 @@ class FakeDashboardLocalDataSource : DashboardLocalDataSource {
             footnotePrimary = "Today",
             footnoteSecondary = null,
             accent = MetricAccent.CYAN,
-            showChevron = false,
+            showChevron = true,
         ),
         notifications = InfoCardData(
             id = "info_notifications",

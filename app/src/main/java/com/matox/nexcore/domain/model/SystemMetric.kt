@@ -28,6 +28,9 @@ enum class MetricType {
     BATTERY,
     CPU,
     TEMPERATURE,
+    DATA_USAGE,
+    WIFI,
+    SENSORS,
 }
 
 /**

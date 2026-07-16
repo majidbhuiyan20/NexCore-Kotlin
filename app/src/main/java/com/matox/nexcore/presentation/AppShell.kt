@@ -10,12 +10,16 @@ import androidx.compose.ui.Modifier
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.presentation.appmanager.AppManagerScreen
 import com.matox.nexcore.presentation.battery.BatteryScreen
+import com.matox.nexcore.presentation.cpu.CpuScreen
 import com.matox.nexcore.presentation.dashboard.DashboardScreen
+import com.matox.nexcore.presentation.datausage.DataUsageScreen
 import com.matox.nexcore.presentation.files.FilesScreen
 import com.matox.nexcore.presentation.phoneinfo.PhoneInfoScreen
 import com.matox.nexcore.presentation.ram.RamScreen
+import com.matox.nexcore.presentation.sensors.SensorScreen
 import com.matox.nexcore.presentation.settings.SettingsScreen
 import com.matox.nexcore.presentation.storageanalyzer.StorageAnalyzerScreen
+import com.matox.nexcore.presentation.wifi.WifiScreen
 
 /** Single navigation model for the app. Adding a new destination is
  *  just appending a sealed-class entry + a case in `AppShell`. */
@@ -26,7 +30,11 @@ sealed class Screen {
     data object PhoneInfo : Screen()
     data object RamDetail : Screen()
     data object BatteryDetail : Screen()
+    data object CpuDetail : Screen()
+    data object DataUsageDetail : Screen()
     data object Files : Screen()
+    data object WifiDetail : Screen()
+    data object Sensors : Screen()
     data object Settings : Screen()
 }
 
@@ -39,7 +47,11 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             is Screen.PhoneInfo -> "phone_info"
             is Screen.RamDetail -> "ram_detail"
             is Screen.BatteryDetail -> "battery_detail"
+            is Screen.CpuDetail -> "cpu_detail"
+            is Screen.DataUsageDetail -> "data_usage_detail"
             is Screen.Files -> "files"
+            is Screen.WifiDetail -> "wifi_detail"
+            is Screen.Sensors -> "sensors"
             is Screen.Settings -> "settings"
         }
     },
@@ -50,7 +62,11 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             "phone_info" -> Screen.PhoneInfo
             "ram_detail" -> Screen.RamDetail
             "battery_detail" -> Screen.BatteryDetail
+            "cpu_detail" -> Screen.CpuDetail
+            "data_usage_detail" -> Screen.DataUsageDetail
             "files" -> Screen.Files
+            "wifi_detail" -> Screen.WifiDetail
+            "sensors" -> Screen.Sensors
             "settings" -> Screen.Settings
             else -> Screen.Home
         }
@@ -119,6 +135,10 @@ fun AppShell(
             onNavigateToPhoneInfo = { screen = Screen.PhoneInfo },
             onNavigateToRamDetail = { screen = Screen.RamDetail },
             onNavigateToBattery = { screen = Screen.BatteryDetail },
+            onNavigateToCpu = { screen = Screen.CpuDetail },
+            onNavigateToDataUsage = { screen = Screen.DataUsageDetail },
+            onNavigateToWifi = { screen = Screen.WifiDetail },
+            onNavigateToSensors = { screen = Screen.Sensors },
             onBottomNavClick = { item ->
                 navigateForNav(
                     item = item,
@@ -194,7 +214,59 @@ fun AppShell(
                 )
             },
         )
+        is Screen.CpuDetail -> CpuScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
+        is Screen.DataUsageDetail -> DataUsageScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
         is Screen.Files -> FilesScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
+        is Screen.WifiDetail -> WifiScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
+        is Screen.Sensors -> SensorScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
             onBottomNavClick = { item ->

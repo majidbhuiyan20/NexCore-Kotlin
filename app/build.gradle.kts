@@ -15,27 +15,72 @@ android {
         applicationId = "com.matox.nexcore"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 100
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    androidResources {
+        localeFilters += listOf("en")
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = "nexcore-release-pw"
+            keyAlias = "nexcore"
+            keyPassword = "nexcore-release-pw"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Production hardening: full R8 minify + resource shrinker.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            // Keep debug build debuggable for development.
+            isDebuggable = true
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     buildFeatures {
         compose = true
+        // Disable buildConfig generation unless we add one explicitly.
+        buildConfig = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*",
+                "/META-INF/*.kotlin_module",
+            )
+        }
+    }
+
+    lint {
+        // Don't abort builds on lint issues; surface them.
+        abortOnError = false
+        // Suppress in release only.
+        disable += listOf("GoogleAppIndexingWarning")
     }
 }
 

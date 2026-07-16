@@ -153,12 +153,17 @@ class DeviceMetricsProvider(
     @Synchronized
     fun readCpuPercent(): Int {
         // Tier 1: /proc/stat — sum across every core line.
+        // Read the per-core lines instead of the `cpu ` aggregate so
+        // we get a stable big.LITTLE-friendly reading. We treat
+        // columns 3 (idle) + 4 (iowait) as idle and everything else as
+        // busy, which is the conventional Linux formula.
         val systemSample = readSystemProcStat()
         if (systemSample != null) {
-            return computeSystemDelta(systemSample)
+            val pct = computeSystemDelta(systemSample)
+            if (pct >= 0) return pct
         }
 
-        // Tier 2: /proc/loadavg.
+        // Tier 2: /proc/loadavg — always readable.
         val loadPct = readLoadAveragePercent()
         if (loadPct != null) {
             lastCpuPercent = loadPct
@@ -177,57 +182,109 @@ class DeviceMetricsProvider(
 
     // ---- Tier 1: /proc/stat (device-wide) ------------------------------
 
-    private data class ProcStatSnapshot(val total: Long, val idle: Long, val timestampMs: Long)
+    private data class ProcStatSnapshot(
+        val total: Long,
+        val idle: Long,
+        val cores: Int,
+        val timestampMs: Long,
+    )
 
     @Volatile private var cpuSample: ProcStatSnapshot? = null
     @Volatile private var lastCpuPercent: Int = 0
 
     /**
-     * Reads the `cpu ` aggregate line plus every `cpu0 … cpuN` core
-     * line from `/proc/stat` and returns the sum. Aggregating cores is
-     * important — the `cpu ` line alone is correct but summing cores
-     * makes the read more stable on big.LITTLE SoCs.
+     * Reads the `cpu0 … cpuN` core lines from `/proc/stat` and returns
+     * the sum. We deliberately skip the `cpu ` aggregate line because
+     * its column layout (number of CPU columns) varies across Android
+     * versions and OEM kernels — some include a `guest` column,
+     * some don't. Per-core lines always have the same canonical layout:
+     *
+     *   user nice system idle iowait irq softirq [steal] [guest] [guest_nice]
+     *
+     * We treat **idle + iowait** as idle and the rest as busy. CPU
+     * steal is unusual on real devices but harmless to count as busy.
+     *
+     * Returns null when nothing was readable (e.g. SELinux-sandboxed
+     * `/proc/stat`); the caller's Tier-2 fallback kicks in then.
      */
     private fun readSystemProcStat(): ProcStatSnapshot? = try {
         RandomAccessFile(File("/proc/stat"), "r").use { raf ->
             var totalSum = 0L
             var idleSum = 0L
-            // Read at most 16 lines — `cpu ` aggregate + cpu0..cpu15.
-            repeat(16) {
+            var cores = 0
+            // Read at most 32 lines — covers up to 32-core SoCs.
+            repeat(32) {
                 val line = raf.readLine() ?: return@repeat
-                if (!line.startsWith("cpu")) return@repeat
+                // Per-core lines only (cpu0, cpu1, …). The aggregate
+                // "cpu " line is skipped on purpose — see kdoc above.
+                if (!line.startsWith("cpu") || line.startsWith("cpu ")) return@repeat
                 val parts = line.split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
                 if (parts.size < 4) return@repeat
-                totalSum += parts.sum()
-                idleSum += parts.getOrElse(3) { 0L } + parts.getOrElse(4) { 0L }
+                // busy = user + nice + system + irq + softirq + steal + guest + guest_nice
+                // idle = idle + iowait
+                var busy = 0L
+                var idle = 0L
+                parts.forEachIndexed { idx, v ->
+                    when (idx) {
+                        3 -> idle += v        // idle
+                        4 -> idle += v        // iowait
+                        else -> busy += v     // user/nice/system/irq/softirq/steal/guest/guest_nice
+                    }
+                }
+                totalSum += busy + idle
+                idleSum += idle
+                cores += 1
             }
-            if (totalSum <= 0L) null
-            else ProcStatSnapshot(totalSum, idleSum, SystemClock.elapsedRealtime())
+            if (totalSum <= 0L || cores == 0) null
+            else ProcStatSnapshot(totalSum, idleSum, cores, SystemClock.elapsedRealtime())
         }
     } catch (_: Throwable) {
         null
     }
 
+    /**
+     * Returns the busy% using the conventional Linux formula
+     * `busyDelta / (busyDelta + idleDelta)`, **scaled per core** so the
+     * number is a device-wide % (not a sum across cores — which is
+     * what produced the constant "100%" bug on earlier implementations
+     * that forgot the divisor).
+     *
+     * Returns -1 when the delta is too small / suspicious — the caller
+     * then falls back to Tier-2 or returns the cached value.
+     */
     private fun computeSystemDelta(sample: ProcStatSnapshot): Int {
         val prev = cpuSample
-        // No prior sample → prime the baseline, return the running
-        // average (0 on cold start) so the UI doesn't flash a bogus
-        // 100% on the very first tick.
+        // No prior sample → prime the baseline and return 0 so the
+        // first frame doesn't flash a bogus 100%.
         if (prev == null) {
+            cpuSample = sample
+            lastCpuPercent = 0
+            return 0
+        }
+        val timeDeltaMs = (sample.timestampMs - prev.timestampMs).coerceAtLeast(1L)
+        if (timeDeltaMs < MIN_CPU_DELTA_MS) {
+            return lastCpuPercent
+        }
+
+        val totalDelta = (sample.total - prev.total).coerceAtLeast(0L)
+        val idleDelta = (sample.idle - prev.idle).coerceAtLeast(0L)
+        val busyDelta = (totalDelta - idleDelta).coerceAtLeast(0L)
+
+        // Per-core divisor: idle + busy across N cores, so a 4-core
+        // device with all cores 25% busy shows 25%, not 100%.
+        val cores = sample.cores.coerceAtLeast(1)
+
+        // If we barely moved any jiffies, treat as "no change" rather
+        // than a magic 100%. 1 jiffy on a slow cpu is normal.
+        if (totalDelta < 2L) {
             cpuSample = sample
             return lastCpuPercent
         }
-        val timeDeltaMs = (sample.timestampMs - prev.timestampMs).coerceAtLeast(1L)
-        // Reject deltas that are too small to be meaningful (<100 ms).
-        if (timeDeltaMs < MIN_CPU_DELTA_MS) {
-            // Keep the previous sample; just return the cached value
-            // rather than churning a noisy 100% reading.
-            return lastCpuPercent
-        }
-        val totalDelta = (sample.total - prev.total).coerceAtLeast(1L)
-        val idleDelta = (sample.idle - prev.idle).coerceAtLeast(0L)
-        val busy = totalDelta - idleDelta
-        val pct = ((busy.toFloat() / totalDelta.toFloat()) * 100f).toInt().coerceIn(0, 100)
+
+        // busy% per core on this delta window
+        val pctPerCore = (busyDelta.toFloat() / totalDelta.toFloat()) * 100f
+        // Average across cores → device-wide %
+        val pct = (pctPerCore / cores.toFloat()).toInt().coerceIn(0, 100)
         lastCpuPercent = pct
         cpuSample = sample
         return pct
