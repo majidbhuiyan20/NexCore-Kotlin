@@ -54,6 +54,7 @@ fun DashboardScreen(
     onNavigateToAppManager: () -> Unit = {},
     onNavigateToPhoneInfo: () -> Unit = {},
     onNavigateToRamDetail: () -> Unit = {},
+    onNavigateToBattery: () -> Unit = {},
     onBottomNavClick: (BottomNavItem) -> Unit = {},
 ) {
     val viewModel: DashboardViewModel = viewModel(
@@ -69,7 +70,11 @@ fun DashboardScreen(
         onNotificationsClick = {},
         onInfoClick = {},
         onMetricClick = { metric ->
-            if (metric.id == MetricType.RAM) onNavigateToRamDetail()
+            when (metric.id) {
+                MetricType.RAM -> onNavigateToRamDetail()
+                MetricType.BATTERY -> onNavigateToBattery()
+                else -> Unit
+            }
         },
         onHealthClick = {},
         onEditQuickActions = {},

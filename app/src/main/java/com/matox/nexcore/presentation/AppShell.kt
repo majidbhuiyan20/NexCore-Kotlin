@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.presentation.appmanager.AppManagerScreen
+import com.matox.nexcore.presentation.battery.BatteryScreen
 import com.matox.nexcore.presentation.dashboard.DashboardScreen
 import com.matox.nexcore.presentation.files.FilesScreen
 import com.matox.nexcore.presentation.phoneinfo.PhoneInfoScreen
@@ -24,6 +25,7 @@ sealed class Screen {
     data object AppManager : Screen()
     data object PhoneInfo : Screen()
     data object RamDetail : Screen()
+    data object BatteryDetail : Screen()
     data object Files : Screen()
     data object Settings : Screen()
 }
@@ -36,6 +38,7 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             is Screen.AppManager -> "app_manager"
             is Screen.PhoneInfo -> "phone_info"
             is Screen.RamDetail -> "ram_detail"
+            is Screen.BatteryDetail -> "battery_detail"
             is Screen.Files -> "files"
             is Screen.Settings -> "settings"
         }
@@ -46,6 +49,7 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             "app_manager" -> Screen.AppManager
             "phone_info" -> Screen.PhoneInfo
             "ram_detail" -> Screen.RamDetail
+            "battery_detail" -> Screen.BatteryDetail
             "files" -> Screen.Files
             "settings" -> Screen.Settings
             else -> Screen.Home
@@ -114,6 +118,7 @@ fun AppShell(
             onNavigateToAppManager = { screen = Screen.AppManager },
             onNavigateToPhoneInfo = { screen = Screen.PhoneInfo },
             onNavigateToRamDetail = { screen = Screen.RamDetail },
+            onNavigateToBattery = { screen = Screen.BatteryDetail },
             onBottomNavClick = { item ->
                 navigateForNav(
                     item = item,
@@ -164,6 +169,19 @@ fun AppShell(
             },
         )
         is Screen.RamDetail -> RamScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
+        is Screen.BatteryDetail -> BatteryScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
             onBottomNavClick = { item ->

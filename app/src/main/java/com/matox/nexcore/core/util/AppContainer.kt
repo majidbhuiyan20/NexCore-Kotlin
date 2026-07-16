@@ -7,16 +7,19 @@ import com.matox.nexcore.data.datasource.LiveDashboardLocalDataSource
 import com.matox.nexcore.data.datasource.LiveStorageAnalyzerDataSource
 import com.matox.nexcore.data.device.AppIconLoader
 import com.matox.nexcore.data.device.AppsProvider
+import com.matox.nexcore.data.device.BatteryProvider
 import com.matox.nexcore.data.device.DeviceMetricsProvider
 import com.matox.nexcore.data.device.PhoneInfoProvider
 import com.matox.nexcore.data.device.RamProvider
 import com.matox.nexcore.data.device.StorageAnalyzerProvider
 import com.matox.nexcore.data.repository.AppManagerRepositoryImpl
+import com.matox.nexcore.data.repository.BatteryRepositoryImpl
 import com.matox.nexcore.data.repository.DashboardRepositoryImpl
 import com.matox.nexcore.data.repository.PhoneInfoRepositoryImpl
 import com.matox.nexcore.data.repository.RamRepositoryImpl
 import com.matox.nexcore.data.repository.StorageAnalyzerRepositoryImpl
 import com.matox.nexcore.domain.repository.AppManagerRepository
+import com.matox.nexcore.domain.repository.BatteryRepository
 import com.matox.nexcore.domain.repository.DashboardRepository
 import com.matox.nexcore.domain.repository.PhoneInfoRepository
 import com.matox.nexcore.domain.repository.RamRepository
@@ -46,6 +49,8 @@ object AppContainer {
         private set
     lateinit var ramRepository: RamRepository
         private set
+    lateinit var batteryRepository: BatteryRepository
+        private set
     lateinit var appIconLoader: AppIconLoader
         private set
 
@@ -72,6 +77,7 @@ object AppContainer {
             val appsDataSource = LiveAppManagerDataSource(context, appsProvider)
             val phoneInfoProvider = PhoneInfoProvider(context)
             val ramProvider = RamProvider(context)
+            val batteryProvider = BatteryProvider(context)
             val iconLoader = AppIconLoader(context)
 
             // The dashboard needs the live installed-apps count.
@@ -88,6 +94,7 @@ object AppContainer {
             appManagerRepository = AppManagerRepositoryImpl(appsDataSource)
             phoneInfoRepository = PhoneInfoRepositoryImpl(phoneInfoProvider)
             ramRepository = RamRepositoryImpl(ramProvider)
+            batteryRepository = BatteryRepositoryImpl(batteryProvider)
             appIconLoader = iconLoader
 
             initialized = true
