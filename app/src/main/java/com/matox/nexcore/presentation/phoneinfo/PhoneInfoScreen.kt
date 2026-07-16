@@ -30,8 +30,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.matox.nexcore.core.util.AppContainer
+import com.matox.nexcore.domain.model.BottomNavIcon
+import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.domain.model.MetricAccent
 import com.matox.nexcore.domain.model.PhoneInfoSnapshot
+import com.matox.nexcore.presentation.dashboard.components.DashboardBottomBar
 import com.matox.nexcore.presentation.phoneinfo.components.BatteryCard
 import com.matox.nexcore.presentation.phoneinfo.components.DeviceHeroCard
 import com.matox.nexcore.presentation.phoneinfo.components.PhoneInfoTopBar
@@ -43,12 +46,23 @@ import com.matox.nexcore.ui.theme.BackgroundGradientBottom
 import com.matox.nexcore.ui.theme.BackgroundGradientTop
 import com.matox.nexcore.ui.theme.TextPrimary
 
-private val BottomContentPadding: Dp = 24.dp
+private val BottomContentPadding: Dp = 120.dp
+
+/** Static bottom-nav used while on Phone Info. None of the four
+ *  pills is "active" — Phone Info is reached via a Home quick
+ *  action, not via the nav bar. */
+private val PhoneInfoBottomNav = listOf(
+    BottomNavItem("nav_home", "Home", BottomNavIcon.HOME, isCenter = false, isActive = false),
+    BottomNavItem("nav_files", "Files", BottomNavIcon.FILES, isCenter = false, isActive = false),
+    BottomNavItem("nav_apps", "Apps", BottomNavIcon.APPS, isCenter = true, isActive = false),
+    BottomNavItem("nav_settings", "Settings", BottomNavIcon.SETTINGS, isCenter = false, isActive = false),
+)
 
 @Composable
 fun PhoneInfoScreen(
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
+    onBottomNavClick: (BottomNavItem) -> Unit = {},
 ) {
     val viewModel: PhoneInfoViewModel = viewModel(
         factory = PhoneInfoViewModel.Factory(AppContainer.phoneInfoRepository),
@@ -60,6 +74,7 @@ fun PhoneInfoScreen(
         modifier = modifier,
         onBack = onBack,
         onRefresh = viewModel::refresh,
+        onBottomNavClick = onBottomNavClick,
     )
 }
 
@@ -69,6 +84,7 @@ internal fun PhoneInfoContent(
     modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
     onRefresh: () -> Unit = {},
+    onBottomNavClick: (BottomNavItem) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     Box(
@@ -83,11 +99,21 @@ internal fun PhoneInfoContent(
         Column(modifier = Modifier.fillMaxSize()) {
             PhoneInfoTopBar(onBackClick = onBack, onRefreshClick = onRefresh)
 
-            when (state) {
-                PhoneInfoUiState.Loading -> LoadingState()
-                is PhoneInfoUiState.Error -> ErrorState(state.message)
-                is PhoneInfoUiState.Success -> ReadyState(snapshot = state.snapshot)
+            Box(modifier = Modifier.weight(1f)) {
+                when (state) {
+                    PhoneInfoUiState.Loading -> LoadingState()
+                    is PhoneInfoUiState.Error -> ErrorState(state.message)
+                    is PhoneInfoUiState.Success -> ReadyState(
+                        snapshot = state.snapshot,
+                        contentPadding = contentPadding,
+                    )
+                }
             }
+
+            DashboardBottomBar(
+                items = PhoneInfoBottomNav,
+                onItemClick = onBottomNavClick,
+            )
         }
     }
 }
@@ -127,12 +153,16 @@ private fun ErrorState(message: String) {
 }
 
 @Composable
-private fun ReadyState(snapshot: PhoneInfoSnapshot) {
+private fun ReadyState(
+    snapshot: PhoneInfoSnapshot,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 4.dp, bottom = BottomContentPadding),
+            .padding(top = contentPadding.calculateTopPadding())
+            .padding(bottom = BottomContentPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         DeviceHeroCard(

@@ -39,3 +39,14 @@ val TrackGray = Color(0xFF22304A)
 val HealthGreenStart = Color(0xFF22C55E)
 val HealthGreenEnd = Color(0xFF15803D)
 val HealthCardBackground = Color(0xFF0F2A1F)
+
+// --- Glass / overlay ---
+/** Subtle white overlay used for the glass shimmer on top of
+ *  premium cards. Kept at low alpha (~20%) so it reads as a
+ *  reflection, not a tinted surface. */
+val GlassHighlight = Color(0x33FFFFFF)
+
+/** Soft red — for "High Usage" badge text on a dark background.
+ *  Brighter than MetricRed so it stays legible on the
+ *  red-tinted badge surface. */
+val MetricSoftRed = Color(0xFFFCA5A5)

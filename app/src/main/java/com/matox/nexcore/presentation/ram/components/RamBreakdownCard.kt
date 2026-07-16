@@ -7,38 +7,57 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Cached
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.SdStorage
+import androidx.compose.material.icons.outlined.Wifi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.matox.nexcore.core.ui.components.IconChip
 import com.matox.nexcore.domain.model.RamSnapshot
 import com.matox.nexcore.ui.theme.CardStroke
+import com.matox.nexcore.ui.theme.GlassHighlight
 import com.matox.nexcore.ui.theme.MetricBlue
 import com.matox.nexcore.ui.theme.MetricCyan
-import com.matox.nexcore.ui.theme.MetricTeal
+import com.matox.nexcore.ui.theme.MetricOrange
+import com.matox.nexcore.ui.theme.MetricViolet
 import com.matox.nexcore.ui.theme.Surface
 import com.matox.nexcore.ui.theme.TextPrimary
 import com.matox.nexcore.ui.theme.TextSecondary
 import com.matox.nexcore.ui.theme.TrackGray
 
 /**
- * Card showing the proportional split of RAM across four buckets:
- * Used · Buffers · Cached · Free.
+ * 2×2 grid of premium cards breaking down the four RAM buckets:
+ *  - **Used** (blue, Memory icon)
+ *  - **Free** (cyan, Memory icon, inverted)
+ *  - **Cached** (violet, Cached icon)
+ *  - **Reserved / System** (orange, SdStorage icon — buffers + swap
+ *    used, which is held by the kernel)
  *
- * Uses a horizontal stacked bar at the top so the user can read the
- * proportions at a glance, followed by a labelled row per bucket.
+ * Each card: glass background, soft shadow, accent icon chip, big
+ * value (24 sp bold), percentage of total RAM, mini progress bar.
+ *
+ * Outer section uses a glassy surface so the 2×2 grid sits on a
+ * single coherent card surface.
  */
 @Composable
 fun RamBreakdownCard(
@@ -48,141 +67,185 @@ fun RamBreakdownCard(
     val totalMb = (snapshot.totalGb * 1024f).toLong().coerceAtLeast(1L)
     val usedMb = (snapshot.usedGb * 1024f).toLong().coerceAtLeast(0L)
     val freeMb = (snapshot.availableGb * 1024f).toLong().coerceAtLeast(0L)
-    // Subtract cached/buffers from "free" so they don't overlap —
-    // buffers and cached count toward `used` in the proportional bar
-    // since they're held by the kernel, not free for apps.
-    val cached = snapshot.cachedMb.coerceAtLeast(0L)
-    val buffers = snapshot.buffersMb.coerceAtLeast(0L)
+    val cachedMb = snapshot.cachedMb.coerceAtLeast(0L)
+    val buffersMb = snapshot.buffersMb.coerceAtLeast(0L)
+    val swapUsedMb = (snapshot.swapTotalMb - snapshot.swapFreeMb).coerceAtLeast(0L)
+    val reservedMb = buffersMb + swapUsedMb
 
-    // The bar shows Used+Buffers+Cached vs Free. Within Used, we
-    // split out Buffers and Cached as their own sub-segments.
-    val usedPlusBuffersCached = usedMb
-    val safeTotal = totalMb.coerceAtLeast(1L)
-
-    val segments = listOf(
-        Segment(label = "Used", mb = usedMb.coerceAtMost(safeTotal), color = MetricBlue),
-        Segment(label = "Buffers", mb = buffers, color = MetricCyan),
-        Segment(label = "Cached", mb = cached, color = MetricTeal),
-        Segment(label = "Free", mb = freeMb.coerceAtLeast(0L), color = TrackGray),
-    )
-    val segmentTotal = segments.sumOf { it.mb }.coerceAtLeast(1L)
-
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Surface)
-            .border(1.dp, CardStroke, RoundedCornerShape(20.dp))
-            .padding(16.dp),
+            .shadow(
+                elevation = 6.dp,
+                shape = RoundedCornerShape(22.dp),
+                ambientColor = MetricViolet.copy(alpha = 0.15f),
+                spotColor = Color.Black.copy(alpha = 0.30f),
+            )
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Surface, Surface.copy(alpha = 0.92f)),
+                ),
+            )
+            .border(1.dp, CardStroke, RoundedCornerShape(22.dp)),
     ) {
-        Text(
-            text = "Memory breakdown",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-            ),
-            color = TextPrimary,
-        )
-        Text(
-            text = "What the kernel is holding right now",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Stacked bar
-        Row(
+        // Top glass highlight.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(14.dp)
-                .clip(RoundedCornerShape(7.dp))
-                .background(TrackGray),
-        ) {
-            segments.forEach { seg ->
-                val weight = seg.mb.toFloat() / segmentTotal.toFloat()
-                if (weight > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .weight(weight)
-                            .fillMaxHeight()
-                            .background(seg.color),
+                .height(50.dp)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(GlassHighlight, Color.Transparent),
+                    ),
+                ),
+        )
+
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Section header.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconChip(
+                    icon = Icons.Outlined.SdStorage,
+                    accent = MetricViolet,
+                    size = 40.dp,
+                    iconSize = 22.dp,
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Memory Breakdown",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = TextPrimary,
+                    )
+                    Text(
+                        text = "Where the kernel is holding your RAM",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 2x2 grid — each row holds two cards.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                BreakdownCell(
+                    label = "Used",
+                    valueMb = usedMb,
+                    totalMb = totalMb,
+                    accent = MetricBlue,
+                    icon = Icons.Outlined.Memory,
+                    modifier = Modifier.weight(1f),
+                )
+                BreakdownCell(
+                    label = "Free",
+                    valueMb = freeMb,
+                    totalMb = totalMb,
+                    accent = MetricCyan,
+                    icon = Icons.Outlined.Memory,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                BreakdownCell(
+                    label = "Cached",
+                    valueMb = cachedMb,
+                    totalMb = totalMb,
+                    accent = MetricViolet,
+                    icon = Icons.Outlined.Cached,
+                    modifier = Modifier.weight(1f),
+                )
+                BreakdownCell(
+                    label = "Reserved",
+                    valueMb = reservedMb,
+                    totalMb = totalMb,
+                    accent = MetricOrange,
+                    icon = Icons.Outlined.Wifi,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Legend rows — colour swatch + label + value
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            LegendRow(MetricBlue, "Used", "${formatMb(usedMb)} · ${pctOf(usedMb, safeTotal)}%")
-            LegendRow(MetricCyan, "Buffers", "${formatMb(buffers)} · ${pctOf(buffers, safeTotal)}%")
-            LegendRow(MetricTeal, "Cached", "${formatMb(cached)} · ${pctOf(cached, safeTotal)}%")
-            LegendRow(TrackGray, "Free", "${formatMb(freeMb)} · ${pctOf(freeMb, safeTotal)}%")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Swap row — separate from the bar but informative.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(TrackGray.copy(alpha = 0.4f))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = "Swap",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
+@Composable
+private fun BreakdownCell(
+    label: String,
+    valueMb: Long,
+    totalMb: Long,
+    accent: Color,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    val pct = ((valueMb.toFloat() / totalMb.toFloat()) * 100f).toInt().coerceIn(0, 100)
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(accent.copy(alpha = 0.10f))
+            .border(1.dp, accent.copy(alpha = 0.30f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconChip(
+                icon = icon,
+                accent = accent,
+                size = 32.dp,
+                iconSize = 16.dp,
             )
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "${formatMb(snapshot.swapTotalMb - snapshot.swapFreeMb)} / ${formatMb(snapshot.swapTotalMb)}",
-                style = MaterialTheme.typography.bodyMedium.copy(
+                text = label,
+                style = MaterialTheme.typography.titleSmall.copy(
                     fontWeight = FontWeight.SemiBold,
                 ),
                 color = TextPrimary,
             )
         }
-
-        // Avoid an "unused" lint warning on the helper — keep the
-        // computed value visible in case future renderings need it.
-        @Suppress("UNUSED_VARIABLE")
-        val _u = usedPlusBuffersCached
-    }
-}
-
-@Composable
-private fun LegendRow(color: Color, label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(color),
-        )
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = FontWeight.SemiBold,
+            text = formatMb(valueMb),
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
             ),
+            color = TextPrimary,
+        )
+        Text(
+            text = "$pct% of total",
+            style = MaterialTheme.typography.labelSmall,
             color = TextSecondary,
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(TrackGray),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(pct / 100f)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(accent.copy(alpha = 0.55f), accent),
+                        ),
+                    ),
+            )
+        }
     }
 }
-
-private data class Segment(val label: String, val mb: Long, val color: Color)
 
 private fun formatMb(mb: Long): String {
     val v = mb.toFloat()
@@ -191,9 +254,4 @@ private fun formatMb(mb: Long): String {
         v <= 0f -> "0 MB"
         else -> "${mb.toInt()} MB"
     }
-}
-
-private fun pctOf(part: Long, whole: Long): Int {
-    if (whole <= 0L) return 0
-    return ((part.toFloat() / whole.toFloat()) * 100f).toInt().coerceIn(0, 100)
 }

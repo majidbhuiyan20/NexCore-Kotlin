@@ -16,6 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Cached
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -36,34 +42,40 @@ import com.matox.nexcore.core.util.toColor
 import com.matox.nexcore.domain.model.MetricAccent
 import com.matox.nexcore.domain.model.RamSnapshot
 import com.matox.nexcore.ui.theme.CardStroke
+import com.matox.nexcore.ui.theme.GlassHighlight
 import com.matox.nexcore.ui.theme.MetricBlue
 import com.matox.nexcore.ui.theme.MetricCyan
+import com.matox.nexcore.ui.theme.MetricOrange
 import com.matox.nexcore.ui.theme.MetricRed
+import com.matox.nexcore.ui.theme.MetricSoftRed
+import com.matox.nexcore.ui.theme.MetricViolet
+import com.matox.nexcore.ui.theme.NexCoreGreen
 import com.matox.nexcore.ui.theme.Surface
 import com.matox.nexcore.ui.theme.TextPrimary
 import com.matox.nexcore.ui.theme.TextSecondary
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.Warning
+import com.matox.nexcore.ui.theme.TrackGray
 
 /**
- * Hero card with an animated arc ring showing used / total RAM,
- * the percentage number in the middle, and a small "Used / Total /
- * Available" stat strip below the ring.
+ * Premium hero card for the RAM detail screen.
  *
- * Layout:
+ * Layout (top → bottom):
  *
- *   ┌─────────────────────────────────────┐
- *   │ [icon] Memory         [pill: %]     │
- *   │                                     │
- *   │           ╭───────╮                 │
- *   │           │  67%  │   ring          │
- *   │           │ 4.2GB │                 │
- *   │           │ of 8GB│                 │
- *   │           ╰───────╯                 │
- *   │                                     │
- *   │  Used 4.2GB  ·  Free 3.8GB  ·  …   │
- *   └─────────────────────────────────────┘
+ *  ┌──────────────────────────────────────────────┐
+ *  │ [icon] Memory       [Status pill: Excellent] │
+ *  │ Real-time device telemetry                    │
+ *  │                                              │
+ *  │           ╭───────╮                          │
+ *  │           │  67%  │   animated ring          │
+ *  │           │ 4.2GB │                          │
+ *  │           │ of 8GB│                          │
+ *  │           ╰───────╯                          │
+ *  │                                              │
+ *  │  Free RAM        │  Cached        │  Pressure │
+ *  │  3.8 GB · 47 %   │  1.4 GB · 17 % │  Normal   │
+ *  │  ▓▓▓▓░░░░░       │  ▓▓░░░░░░░     │  ────     │
+ *  └──────────────────────────────────────────────┘
+ *
+ * Glass surface = layered gradient + 1 dp border + 8 dp shadow.
  */
 @Composable
 fun RamHeroCard(
@@ -72,148 +84,280 @@ fun RamHeroCard(
 ) {
     val accent = MetricAccent.BLUE
     val accentColor = accent.toColor()
-    val ringColor = if (snapshot.percent >= 85) MetricRed else accentColor
 
-    // Animate the sweep angle so the ring glides between polls instead
-    // of snapping. 600 ms feels right — long enough to be smooth,
-    // short enough that the next poll arrives mid-flight.
+    // Status badge derived from percent.
+    val statusLabel: String
+    val statusColor: Color
+    val statusBg: Color
+    when {
+        snapshot.percent >= 80 -> {
+            statusLabel = "High Usage"
+            statusColor = MetricSoftRed
+            statusBg = MetricRed.copy(alpha = 0.18f)
+        }
+        snapshot.percent >= 60 -> {
+            statusLabel = "Normal"
+            statusColor = MetricCyan
+            statusBg = MetricCyan.copy(alpha = 0.18f)
+        }
+        else -> {
+            statusLabel = "Excellent"
+            statusColor = NexCoreGreen
+            statusBg = NexCoreGreen.copy(alpha = 0.18f)
+        }
+    }
+
+    // Animated ring sweep.
     val animatedPct by animateFloatAsState(
         targetValue = snapshot.percent.toFloat(),
-        animationSpec = tween(durationMillis = 600),
-        label = "ram-pct",
+        animationSpec = tween(durationMillis = 700),
+        label = "ram-hero-pct",
     )
 
-    Column(
+    // Pull out the components we surface as labelled rows below the ring.
+    val totalMb = (snapshot.totalGb * 1024f).toLong().coerceAtLeast(1L)
+    val freeMb = (snapshot.availableGb * 1024f).toLong().coerceAtLeast(0L)
+    val cachedMb = snapshot.cachedMb.coerceAtLeast(0L)
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(Surface)
-            .border(1.dp, CardStroke, RoundedCornerShape(24.dp))
-            .padding(20.dp),
-    ) {
-        // Header row — icon chip + "Memory" title + percent pill.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            IconChip(
-                icon = Icons.Outlined.Memory,
-                accent = accentColor,
-                size = 40.dp,
-                iconSize = 22.dp,
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(24.dp),
+                ambientColor = MetricCyan.copy(alpha = 0.18f),
+                spotColor = Color.Black.copy(alpha = 0.45f),
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Memory in use",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Surface,
+                        Surface.copy(alpha = 0.92f),
                     ),
-                    color = TextPrimary,
-                )
-                Text(
-                    text = if (snapshot.lowMemory) "Low memory" else "Live device telemetry",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (snapshot.lowMemory) MetricRed else TextSecondary,
-                )
-            }
-            // Pill showing the current percentage.
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(ringColor.copy(alpha = 0.18f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    text = "${snapshot.percent}%",
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    color = ringColor,
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // The animated ring + center labels.
+                ),
+            )
+            .border(1.dp, CardStroke, RoundedCornerShape(24.dp)),
+    ) {
+        // Glass highlight along the top edge.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            AnimatedRamRing(
-                percent = animatedPct,
-                color = ringColor,
-                sizeDp = 220,
-                strokeWidthDp = 16,
-            )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "${snapshot.percent}%",
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 44.sp,
+                .height(60.dp)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(GlassHighlight, Color.Transparent),
                     ),
-                    color = TextPrimary,
+                ),
+        )
+
+        Column(modifier = Modifier.padding(20.dp)) {
+            // ---- Header row ------------------------------------------------
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                IconChip(
+                    icon = Icons.Outlined.Memory,
+                    accent = accentColor,
+                    size = 44.dp,
+                    iconSize = 24.dp,
                 )
-                Text(
-                    text = "${formatGb(snapshot.usedGb)} / ${formatGb(snapshot.totalGb)}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextSecondary,
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Memory in use",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = TextPrimary,
+                    )
+                    Text(
+                        text = if (snapshot.lowMemory)
+                            "Low memory — kernel threshold reached"
+                        else
+                            "Real-time device telemetry",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (snapshot.lowMemory) MetricSoftRed else TextSecondary,
+                    )
+                }
+                // Status badge pill.
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(statusBg)
+                        .border(
+                            1.dp,
+                            statusColor.copy(alpha = 0.35f),
+                            RoundedCornerShape(14.dp),
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        text = statusLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = statusColor,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ---- Ring + interior -------------------------------------------
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                AnimatedRamRing(
+                    percent = animatedPct,
+                    color = if (snapshot.percent >= 85) MetricRed else accentColor,
+                    sizeDp = 240,
+                    strokeWidthDp = 18,
+                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = formatGb(snapshot.usedGb),
+                        style = MaterialTheme.typography.displaySmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 40.sp,
+                        ),
+                        color = TextPrimary,
+                    )
+                    Text(
+                        text = "of ${formatGb(snapshot.totalGb)}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextSecondary,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${snapshot.percent}% used",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 18.sp,
+                        ),
+                        color = if (snapshot.percent >= 85) MetricRed else accentColor,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ---- Three labelled mini-bar rows ------------------------------
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                PressureCell(
+                    label = "Free RAM",
+                    valueMb = freeMb,
+                    totalMb = totalMb,
+                    accent = MetricCyan,
+                    icon = Icons.Outlined.Memory,
+                    modifier = Modifier.weight(1f),
+                )
+                PressureCell(
+                    label = "Cached",
+                    valueMb = cachedMb,
+                    totalMb = totalMb,
+                    accent = MetricViolet,
+                    icon = Icons.Outlined.Cached,
+                    modifier = Modifier.weight(1f),
+                )
+                PressureCell(
+                    label = "Pressure",
+                    valueMb = 0,
+                    totalMb = 0,
+                    accent = statusColor,
+                    icon = Icons.Outlined.Bolt,
+                    modifier = Modifier.weight(1f),
+                    pressureLabel = statusLabel,
                 )
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(16.dp))
+/**
+ * Small labelled cell — used in the 3-column strip below the ring.
+ *
+ * For Free RAM and Cached, the mini bar shows the share of total RAM.
+ * For Pressure, no bar is rendered; just the status label.
+ */
+@Composable
+private fun PressureCell(
+    label: String,
+    valueMb: Long,
+    totalMb: Long,
+    accent: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    pressureLabel: String? = null,
+) {
+    val pct = if (totalMb > 0L && valueMb > 0L) {
+        ((valueMb.toFloat() / totalMb.toFloat()) * 100f).toInt().coerceIn(0, 100)
+    } else null
 
-        // Three-tile stat strip.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            HeroStat(
-                label = "Used",
-                value = formatGb(snapshot.usedGb),
-                accent = accentColor,
-                modifier = Modifier.weight(1f),
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(accent.copy(alpha = 0.10f))
+            .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(14.dp),
             )
-            HeroStat(
-                label = "Available",
-                value = formatGb(snapshot.availableGb),
-                accent = MetricCyan,
-                modifier = Modifier.weight(1f),
-            )
-            HeroStat(
-                label = if (snapshot.lowMemory) "Threshold" else "Threshold",
-                value = if (snapshot.thresholdGb > 0f) formatGb(snapshot.thresholdGb) else "—",
-                accent = if (snapshot.lowMemory) MetricRed else TextSecondary,
-                modifier = Modifier.weight(1f),
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                color = accent,
             )
         }
-
-        if (snapshot.lowMemory) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = pressureLabel ?: formatMb(valueMb),
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.Bold,
+            ),
+            color = TextPrimary,
+        )
+        if (pct != null) {
+            Text(
+                text = "$pct% of total",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MetricRed.copy(alpha = 0.12f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(TrackGray),
             ) {
-                IconChip(
-                    icon = Icons.Outlined.Warning,
-                    accent = MetricRed,
-                    size = 32.dp,
-                    iconSize = 16.dp,
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "System is reporting low memory — consider closing apps.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MetricRed,
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(pct / 100f)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(accent.copy(alpha = 0.6f), accent),
+                            ),
+                        ),
                 )
             }
         }
@@ -244,10 +388,10 @@ private fun AnimatedRamRing(
             size = arcSize,
             style = stroke,
         )
-        // Animated sweep — blue → cyan gradient on the brush.
+        // Animated sweep
         val sweep = (percent.coerceIn(0f, 100f) / 100f) * 360f
         if (sweep > 0f) {
-            // Soft glow under the ring
+            // Outer soft glow
             drawArc(
                 brush = Brush.sweepGradient(
                     colors = listOf(
@@ -262,7 +406,7 @@ private fun AnimatedRamRing(
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
-                style = Stroke(width = strokePx + 6f),
+                style = Stroke(width = strokePx + 8f),
             )
             // Solid ring on top
             drawArc(
@@ -281,38 +425,22 @@ private fun AnimatedRamRing(
     }
 }
 
-@Composable
-private fun HeroStat(
-    label: String,
-    value: String,
-    accent: Color,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(accent.copy(alpha = 0.10f))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.Start,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-            ),
-            color = accent,
-        )
-    }
-}
-
 private fun formatGb(v: Float): String {
     if (v <= 0f) return "0.0 GB"
     val rounded = (v * 10f).toInt() / 10f
     return "$rounded GB"
 }
+
+private fun formatMb(mb: Long): String {
+    val v = mb.toFloat()
+    return when {
+        v >= 1024f -> String.format("%.1f GB", v / 1024f)
+        v <= 0f -> "0 MB"
+        else -> "${mb.toInt()} MB"
+    }
+}
+
+// Suppress an unused-import warning on the unused colour, keeping it
+// available for the high-usage path of the badge.
+@Suppress("unused")
+private val _keep: Color = MetricOrange

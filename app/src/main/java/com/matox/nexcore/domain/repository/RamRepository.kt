@@ -10,7 +10,13 @@ import kotlinx.coroutines.flow.Flow
  * implementation polls the underlying providers so the chart on the
  * detail screen can keep ticking at the same cadence as the
  * dashboard metrics row (3 s).
+ *
+ * [refreshNow] requests an immediate poll outside the normal cadence.
+ * The detail-screen "Refresh" button calls this so the user sees the
+ * chart, donut, and event timeline update without waiting up to 3 s
+ * for the next scheduled tick.
  */
 interface RamRepository {
     fun observeSnapshot(): Flow<RamSnapshot>
+    suspend fun refreshNow()
 }

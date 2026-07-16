@@ -46,11 +46,11 @@ class RamViewModel(
         observe()
     }
 
-    /** No-op for now — the repo is already polling. Provided so the
-     *  top-bar refresh button can be wired later without changing the
-     *  VM surface. */
+    /** Force an immediate poll on the underlying repository so the
+     *  chart, donut, and event timeline update without waiting for
+     *  the next 3 s tick. */
     fun refresh() {
-        _uiState.value = _uiState.value
+        viewModelScope.launch { repository.refreshNow() }
     }
 
     private fun observe() {

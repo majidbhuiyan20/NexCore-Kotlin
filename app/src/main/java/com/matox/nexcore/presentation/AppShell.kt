@@ -10,8 +10,10 @@ import androidx.compose.ui.Modifier
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.presentation.appmanager.AppManagerScreen
 import com.matox.nexcore.presentation.dashboard.DashboardScreen
+import com.matox.nexcore.presentation.files.FilesScreen
 import com.matox.nexcore.presentation.phoneinfo.PhoneInfoScreen
 import com.matox.nexcore.presentation.ram.RamScreen
+import com.matox.nexcore.presentation.settings.SettingsScreen
 import com.matox.nexcore.presentation.storageanalyzer.StorageAnalyzerScreen
 
 /** Single navigation model for the app. Adding a new destination is
@@ -22,6 +24,8 @@ sealed class Screen {
     data object AppManager : Screen()
     data object PhoneInfo : Screen()
     data object RamDetail : Screen()
+    data object Files : Screen()
+    data object Settings : Screen()
 }
 
 private val ScreenSaver: Saver<Screen, String> = Saver(
@@ -32,6 +36,8 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             is Screen.AppManager -> "app_manager"
             is Screen.PhoneInfo -> "phone_info"
             is Screen.RamDetail -> "ram_detail"
+            is Screen.Files -> "files"
+            is Screen.Settings -> "settings"
         }
     },
     restore = { saved ->
@@ -40,26 +46,53 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             "app_manager" -> Screen.AppManager
             "phone_info" -> Screen.PhoneInfo
             "ram_detail" -> Screen.RamDetail
+            "files" -> Screen.Files
+            "settings" -> Screen.Settings
             else -> Screen.Home
         }
     },
 )
 
 /**
+ * Routes a bottom-nav tap to its destination screen. Centralised here
+ * so every screen wires the same mapping and the active-highlight
+ * stays in sync across the app.
+ */
+private fun navigateForNav(
+    item: BottomNavItem,
+    onHome: () -> Unit,
+    onFiles: () -> Unit,
+    onApps: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    when (item.id) {
+        "nav_home" -> onHome()
+        "nav_files" -> onFiles()
+        "nav_apps" -> onApps()
+        "nav_settings" -> onSettings()
+    }
+}
+
+/**
  * Root shell that owns a saveable screen state and switches between
- * the dashboard, storage analyzer, app manager, and phone info.
+ * the dashboard, storage analyzer, app manager, phone info, files,
+ * and settings.
+ *
  * No Compose Navigation dependency — the user opted for the
  * lightweight sealed-class approach.
  *
- * Wires:
- *  - Home quick action `qa_storage` → push StorageAnalyzer.
- *  - Home quick action `qa_apps` → push AppManager.
- *  - Home quick action `qa_phone` → push PhoneInfo.
- *  - Home bottom nav "Apps" pill (also the qa_apps centre FAB)
- *    → push AppManager.
- *  - Any sub-screen back arrow → pop to Home.
- *  - StorageAnalyzer / AppManager / PhoneInfo "Home" nav pill →
- *    pop to Home.
+ * Bottom-nav wiring (every screen, every pill):
+ *  - Home pill → Home.
+ *  - Files pill → Files (folder-browse screen).
+ *  - Apps pill → AppManager (center FAB).
+ *  - Settings pill → Settings.
+ *
+ * Quick-action wiring (Home only):
+ *  - qa_storage → StorageAnalyzer
+ *  - qa_apps → AppManager
+ *  - qa_phone → PhoneInfo
+ *
+ * Sub-screen back arrows pop to Home.
  */
 @Composable
 fun AppShell(
@@ -69,6 +102,11 @@ fun AppShell(
         mutableStateOf<Screen>(Screen.Home)
     }
 
+    val homeClick: () -> Unit = { screen = Screen.Home }
+    val filesClick: () -> Unit = { screen = Screen.Files }
+    val appsClick: () -> Unit = { screen = Screen.AppManager }
+    val settingsClick: () -> Unit = { screen = Screen.Settings }
+
     when (val current = screen) {
         is Screen.Home -> DashboardScreen(
             modifier = modifier,
@@ -76,41 +114,92 @@ fun AppShell(
             onNavigateToAppManager = { screen = Screen.AppManager },
             onNavigateToPhoneInfo = { screen = Screen.PhoneInfo },
             onNavigateToRamDetail = { screen = Screen.RamDetail },
-            onBottomNavClick = { item: BottomNavItem ->
-                if (item.id == "nav_apps") screen = Screen.AppManager
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
             },
         )
         is Screen.StorageAnalyzer -> StorageAnalyzerScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
-            onBottomNavClick = { item: BottomNavItem ->
-                when (item.id) {
-                    "nav_home" -> screen = Screen.Home
-                    "nav_apps" -> screen = Screen.AppManager
-                }
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
             },
         )
         is Screen.AppManager -> AppManagerScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
-            onBottomNavClick = { item: BottomNavItem ->
-                when (item.id) {
-                    "nav_home" -> screen = Screen.Home
-                }
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
             },
         )
         is Screen.PhoneInfo -> PhoneInfoScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
         )
         is Screen.RamDetail -> RamScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
-            onBottomNavClick = { item: BottomNavItem ->
-                when (item.id) {
-                    "nav_home" -> screen = Screen.Home
-                    "nav_apps" -> screen = Screen.AppManager
-                }
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
+        is Screen.Files -> FilesScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
+            },
+        )
+        is Screen.Settings -> SettingsScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item ->
+                navigateForNav(
+                    item = item,
+                    onHome = homeClick,
+                    onFiles = filesClick,
+                    onApps = appsClick,
+                    onSettings = settingsClick,
+                )
             },
         )
     }

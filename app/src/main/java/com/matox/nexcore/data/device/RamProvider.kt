@@ -5,9 +5,13 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import com.matox.nexcore.domain.model.AppRamUsage
+import com.matox.nexcore.domain.model.MemoryEvent
+import com.matox.nexcore.domain.model.MemoryEventType
+import com.matox.nexcore.domain.model.MetricAccent
 import com.matox.nexcore.domain.model.RamSnapshot
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.UUID
 import kotlin.math.max
 
 /**
@@ -36,6 +40,18 @@ class RamProvider(
 
     private val historyBuffer = ArrayDeque<Int>(HISTORY_CAPACITY + 1)
     @Volatile private var lastGood: RamSnapshot? = null
+
+    // --- Event synthesis state -------------------------------------------
+    // Previous tick's RAM usage + lowMemory flag — used to detect
+    // meaningful state changes (allocation, kernel reclaim, pressure
+    // threshold crossing) and emit timeline events.
+    private var previousUsedGb: Float = 0f
+    private var previousLowMemory: Boolean = false
+    private var previousPercent: Int = 0
+    private val eventBuffer = ArrayDeque<MemoryEvent>(EVENT_CAPACITY + 1)
+    // Cache of the previous tick's top-apps set, keyed by package.
+    // Lets us emit APP_OPENED events for newly-visible apps.
+    private var previousTopAppsByPkg: Map<String, Long> = emptyMap()
 
     fun snapshot(): RamSnapshot {
         val result = runCatching { buildSnapshot() }.getOrNull()
@@ -79,6 +95,20 @@ class RamProvider(
 
         val topApps = readTopApps(am)
 
+        // Synthesise timeline events from the delta between this tick
+        // and the previous one. Skipped on the very first poll (when
+        // previousUsedGb == 0 and previousTopAppsByPkg is empty) so
+        // we don't fire a flood of synthetic events at startup.
+        if (previousUsedGb > 0f || previousTopAppsByPkg.isNotEmpty()) {
+            runCatching { synthesiseEvents(topApps, usedGb, pct, info.lowMemory) }
+        }
+
+        // Snapshot the new "previous" state for the next delta.
+        previousUsedGb = usedGb
+        previousLowMemory = info.lowMemory
+        previousPercent = pct
+        previousTopAppsByPkg = topApps.associate { it.packageName to it.pssMb }
+
         return RamSnapshot(
             usedGb = usedGb,
             totalGb = totalGb,
@@ -93,6 +123,7 @@ class RamProvider(
             swapFreeMb = kbToMb(swapFreeKb),
             historyPercent = historyBuffer.toList(),
             topApps = topApps,
+            recentEvents = eventBuffer.toList().asReversed(),
         )
     }
 
@@ -110,7 +141,145 @@ class RamProvider(
         swapFreeMb = 0L,
         historyPercent = emptyList(),
         topApps = emptyList(),
+        recentEvents = emptyList(),
     )
+
+    // --- Event synthesis ---------------------------------------------------
+
+    /**
+     * Diff the current tick against the cached `previousXxx` fields
+     * and append [MemoryEvent] entries to [eventBuffer] for any
+     * meaningful state change. Synthesis rules:
+     *
+     *  - **APP_OPENED** — a package appeared in [topApps] that wasn't
+     *    there last tick.
+     *  - **LARGE_ALLOCATION** — `usedGb` jumped by > [LARGE_ALLOC_GB]
+     *    between ticks (up only).
+     *  - **LOW_MEMORY_WARNING** — `lowMemory` flipped false → true.
+     *  - **BACKGROUND_CLEANUP** — `lowMemory` flipped true → false.
+     *  - **MEMORY_PRESSURE_CHANGE** — `pct` crossed the 70 % line
+     *    in either direction.
+     *
+     * Buffer is capped to [EVENT_CAPACITY]; oldest entries are dropped.
+     * Synthesis never throws — `runCatching` wraps the call site.
+     */
+    private fun synthesiseEvents(
+        topApps: List<AppRamUsage>,
+        usedGb: Float,
+        pct: Int,
+        lowMemory: Boolean,
+    ) {
+        val now = System.currentTimeMillis()
+
+        // 1. Newly-appearing top apps.
+        val currentPkgs = topApps.map { it.packageName }.toSet()
+        val newPkgs = currentPkgs - previousTopAppsByPkg.keys
+        for (pkg in newPkgs) {
+            val app = topApps.first { it.packageName == pkg }
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.APP_OPENED,
+                    title = app.displayName,
+                    subtitle = "Appeared in top memory consumers",
+                    accent = MetricAccent.BLUE,
+                )
+            )
+        }
+
+        // 2. Large allocation — used jumped upward.
+        val delta = usedGb - previousUsedGb
+        if (delta >= LARGE_ALLOC_GB) {
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.LARGE_ALLOCATION,
+                    title = "Large memory allocation",
+                    subtitle = "RAM usage increased by ${formatGb(delta)}",
+                    accent = MetricAccent.RED,
+                )
+            )
+        } else if (delta <= -LARGE_ALLOC_GB) {
+            // Big drop — heuristic: kernel reclaimed memory.
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.BACKGROUND_CLEANUP,
+                    title = "Background cleanup",
+                    subtitle = "Freed approximately ${formatGb(-delta)}",
+                    accent = MetricAccent.GREEN,
+                )
+            )
+        }
+
+        // 3. lowMemory flag flips.
+        if (lowMemory && !previousLowMemory) {
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.LOW_MEMORY_WARNING,
+                    title = "Low memory warning",
+                    subtitle = "System reports lowMemory threshold reached",
+                    accent = MetricAccent.RED,
+                )
+            )
+        } else if (!lowMemory && previousLowMemory) {
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.BACKGROUND_CLEANUP,
+                    title = "Memory pressure cleared",
+                    subtitle = "Kernel reclaimed cached pages",
+                    accent = MetricAccent.GREEN,
+                )
+            )
+        }
+
+        // 4. Pressure threshold (70%) crossing.
+        val crossedUp = previousPercent < PRESSURE_PCT && pct >= PRESSURE_PCT
+        val crossedDown = previousPercent >= PRESSURE_PCT && pct < PRESSURE_PCT
+        if (crossedUp) {
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.MEMORY_PRESSURE_CHANGE,
+                    title = "Memory pressure rising",
+                    subtitle = "Crossed $PRESSURE_PCT% threshold ($pct%)",
+                    accent = MetricAccent.ORANGE,
+                )
+            )
+        } else if (crossedDown) {
+            appendEvent(
+                MemoryEvent(
+                    id = UUID.randomUUID().toString(),
+                    timestampMs = now,
+                    type = MemoryEventType.MEMORY_PRESSURE_CHANGE,
+                    title = "Memory pressure easing",
+                    subtitle = "Dropped below $PRESSURE_PCT% threshold ($pct%)",
+                    accent = MetricAccent.CYAN,
+                )
+            )
+        }
+    }
+
+    private fun appendEvent(event: MemoryEvent) {
+        if (eventBuffer.size >= EVENT_CAPACITY) {
+            eventBuffer.removeFirst()
+        }
+        eventBuffer.addLast(event)
+    }
+
+    private fun formatGb(v: Float): String {
+        if (v <= 0f) return "0.0 GB"
+        val rounded = (v * 10f).toInt() / 10f
+        return "$rounded GB"
+    }
 
     // --- /proc/meminfo ----------------------------------------------------
 
@@ -239,6 +408,7 @@ class RamProvider(
                     pssMb = it.pssMb,
                     privateDirtyMb = if (it.hasRealPss) it.pssMb else 0L,
                     isSystem = it.isSystem,
+                    hasRealPss = it.hasRealPss,
                 )
             }
     }
@@ -328,8 +498,15 @@ class RamProvider(
 
     companion object {
         private const val BYTES_PER_GB: Float = 1024f * 1024f * 1024f
-        private const val HISTORY_CAPACITY: Int = 60
+        // 60 minutes at 3 s polling cadence → 1200 samples. ~4.8 KB.
+        private const val HISTORY_CAPACITY: Int = 1200
         private const val TOP_APPS_LIMIT: Int = 8
         private const val MEMINFO_LINE_CAP: Int = 64
+        // Max number of synthesised timeline events retained.
+        private const val EVENT_CAPACITY: Int = 20
+        // Minimum upward jump in GB to count as a "large allocation".
+        private const val LARGE_ALLOC_GB: Float = 0.5f
+        // RAM percent at which we say the device is under pressure.
+        private const val PRESSURE_PCT: Int = 70
     }
 }
