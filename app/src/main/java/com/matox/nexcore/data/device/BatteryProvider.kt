@@ -1,5 +1,6 @@
 package com.matox.nexcore.data.device
 
+import android.annotation.SuppressLint
 import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
@@ -25,16 +26,18 @@ import kotlin.math.abs
  * Synchronous reader that produces a [BatterySnapshot] from on-device APIs.
  *
  * Sources:
- *  - [BatteryManager.getIntProperty] — capacity, status, current (µA),
- *    energy counter.
- *  - [BatteryManager.getLongProperty] (`BATTERY_PROPERTY_TIME_TO_FULL_NOW`)
- *    — nanoseconds remaining until full (API 21+).
+ *  - [BatteryManager.getIntProperty] — capacity, status (API 26+),
+ *    current (µA), energy counter.
+ *  - [BatteryManager.computeChargeTimeRemaining] — ms until full
+ *    (API 28+).
  *  - Sticky `ACTION_BATTERY_CHANGED` intent — temperature, voltage,
- *    plug type, technology, health.
- *  - [UsageStatsManager.queryUsageStats] — top consuming apps when the
- *    caller has `PACKAGE_USAGE_STATS` permission. Falls back to a
- *    deterministic slice of [AppsProvider.snapshot] so the section is
- *    never empty on devices that revoke the permission.
+ *    plug type, technology, health. On API < 26 we also use it to
+ *    read status because `BATTERY_PROPERTY_STATUS` requires API 26.
+ *  - [UsageStatsManager.queryUsageStats] — top consuming apps when
+ *    the caller has `PACKAGE_USAGE_STATS` (a runtime-granted special
+ *    permission). Falls back to a deterministic slice of
+ *    [AppsProvider.snapshot] so the section is never empty on devices
+ *    that revoke the permission.
  *
  * The instance holds rolling history buffers (`ArrayDeque<Int>` for
  * percentage, `ArrayDeque<Float>` for temperature) so successive calls
@@ -83,14 +86,20 @@ class BatteryProvider(
     private fun buildSnapshot(): BatterySnapshot {
         val bm = appContext.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
 
-        // --- Level & status (BatteryManager properties) ---
+        // --- Level & status ---
+        // `BATTERY_PROPERTY_STATUS` was added in API 26 (O). Below
+        // that, fall back to the sticky intent's `EXTRA_STATUS`.
         val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             .coerceIn(0, 100)
-        val statusInt = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
+        val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val statusInt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
+        } else {
+            intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        }
         val status = mapStatus(statusInt)
 
         // --- Sticky intent (temperature / voltage / plug / tech / health) ---
-        val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val tempTenths = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
         val temperatureC = tempTenths / 10f
         val voltageMv = intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
@@ -109,11 +118,11 @@ class BatteryProvider(
             else -> currentUa.toInt()
         }
 
-        // --- Time-to-full — `getLongProperty` returns nanoseconds.
-        // Returns `Long.MIN_VALUE` when not charging / unavailable.
+        // --- Time-to-full — `computeChargeTimeRemaining()` returns ms
+        // until full. Returns `-1` when not charging / unavailable.
         val etaMinutes: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val nanos = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_TIME_TO_FULL_NOW)
-            if (nanos > 0L) (nanos / 60_000_000_000L).toInt() else null
+            val millis = bm.computeChargeTimeRemaining()
+            if (millis > 0L) (millis / 60_000L).toInt() else null
         } else null
 
         // --- Fast charging heuristic ---
@@ -122,7 +131,11 @@ class BatteryProvider(
             abs(currentNowMa) >= FAST_CHARGE_MA_THRESHOLD
 
         // --- Capacity ---
-        val capacityMah = readDesignCapacityMah()
+        // `BATTERY_PROPERTY_CAPACITY` already gives us the live
+        // level, but design capacity (mAh) isn't exposed via a public
+        // API. We fall back to a nominal 4000 mAh so the field is
+        // always populated.
+        val capacityMah = DEFAULT_CAPACITY_MAH
 
         // --- Charging state diff ---
         val now = System.currentTimeMillis()
@@ -172,10 +185,10 @@ class BatteryProvider(
         val topApps = readTopApps(capacityMah)
 
         // --- Health synthesis ---
-        val health = synthesizeHealth(pct, temperatureC, topApps, charging)
+        val health = synthesizeHealth(level = pct, tempC = temperatureC, charging = charging)
 
         // --- Insights synthesis ---
-        val insights = synthesizeInsights(reading, topApps, chargingStart)
+        val insights = synthesizeInsights(reading = reading, apps = topApps, chargingStart = chargingStart)
 
         // Persist state diff.
         lastObservedStatus = status
@@ -193,32 +206,19 @@ class BatteryProvider(
         )
     }
 
-    // --- Capacity lookup -------------------------------------------------
-
-    private fun readDesignCapacityMah(): Int {
-        // Some ROMs publish design capacity (mAh) via SystemProperties.
-        // Try a few candidate keys; fall back to nominal 4000 mAh so
-        // the field is never blank.
-        val candidates = listOf(
-            "ro.battery.capacity",
-            "persist.sys.battery.capacity",
-        )
-        for (key in candidates) {
-            val raw = readSystemProperty(key)
-            val parsed = raw?.toIntOrNull()
-            if (parsed != null && parsed in 500..20_000) return parsed
-        }
-        return DEFAULT_CAPACITY_MAH
-    }
-
-    private fun readSystemProperty(key: String): String? = runCatching {
-        val cls = Class.forName("android.os.SystemProperties")
-        val method = cls.getMethod("get", String::class.java, String::class.java)
-        method.invoke(null, key, "") as? String
-    }.getOrNull()
-
     // --- Top apps --------------------------------------------------------
 
+    /**
+     * Top consuming apps.
+     *
+     * Prefers `UsageStatsManager` when the special permission
+     * `PACKAGE_USAGE_STATS` has been granted by the user (Settings →
+     * Special access → Usage data). Falls back to a deterministic
+     * 5-app list from [AppsProvider.snapshot] otherwise so the section
+     * is never empty on devices/emulators that haven't granted the
+     * permission.
+     */
+    @SuppressLint("MissingPermission")
     private fun readTopApps(capacityMah: Int): List<BatteryAppUsage> {
         val realUsage: List<BatteryAppUsage>? = runCatching {
             val usm = appContext.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
@@ -256,7 +256,7 @@ class BatteryProvider(
         if (!realUsage.isNullOrEmpty()) return realUsage
 
         // Fallback — synthesize a deterministic 5-app list from
-        // installed apps. Weights are index-derived so the same set
+        // installed apps. Weights decrease with index so the same set
         // shows up consistently on each render, but each app gets a
         // plausible percentage so the section is never empty.
         val apps = runCatching {
@@ -264,10 +264,10 @@ class BatteryProvider(
         }.getOrNull().orEmpty()
         if (apps.isEmpty()) return emptyList()
 
-        val totalWeight = apps.mapIndexed { idx, _ -> (5 - idx).toFloat() }.sum()
-        return apps.mapIndexed { idx, info ->
-            val weight = (5 - idx).toFloat()
-            val pct = ((weight / totalWeight) * 60f).coerceIn(0f, 100f)
+        return List(apps.size) { idx ->
+            val info = apps[idx]
+            val weight = (apps.size - idx).toFloat()
+            val pct = (weight / apps.size.toFloat() * 60f).coerceIn(0f, 100f)
             val mah = if (capacityMah > 0) (capacityMah * pct / 100f) else 0f
             BatteryAppUsage(
                 packageName = info.packageName,
@@ -283,7 +283,6 @@ class BatteryProvider(
     private fun synthesizeHealth(
         level: Int,
         tempC: Float,
-        apps: List<BatteryAppUsage>,
         charging: ChargingInfo,
     ): BatteryHealth {
         // Synthetic but plausible — until we have real counter data
@@ -321,7 +320,7 @@ class BatteryProvider(
     private fun synthesizeInsights(
         reading: BatteryReading,
         apps: List<BatteryAppUsage>,
-        chargingStartedMs: Long?,
+        chargingStart: Long?,
     ): List<BatteryInsight> {
         val out = mutableListOf<BatteryInsight>()
 
@@ -373,9 +372,14 @@ class BatteryProvider(
             )
         }
 
+        // Late-night charging only counts as a recommendation once the
+        // session has been running a few minutes — avoids false
+        // positives from a 30-second top-up at 23:59.
         val cal = Calendar.getInstance()
         val hour = cal.get(Calendar.HOUR_OF_DAY)
-        if (reading.status == BatteryStatus.CHARGING && hour >= 22) {
+        val chargingLongEnough = chargingStart != null &&
+            System.currentTimeMillis() - chargingStart > 5L * 60_000L
+        if (reading.status == BatteryStatus.CHARGING && hour >= 22 && chargingLongEnough) {
             out += BatteryInsight(
                 accent = MetricAccent.VIOLET,
                 title = "Avoid overnight charging",
@@ -415,7 +419,14 @@ class BatteryProvider(
         /** |current| ≥ 1500 mA while charging = "fast charging" heuristic. */
         private const val FAST_CHARGE_MA_THRESHOLD: Int = 1500
 
-        /** Nominal fallback when SystemProperties has no answer. */
+        /**
+         * Nominal fallback for design capacity. Android does not expose
+         * a public API for design capacity in mAh — and OEM-specific
+         * `SystemProperties` keys are not portable. We use a typical
+         * mid-range phone value so the "Estimated Battery Time" tile
+         * is always populated; the field is documented in the UI as
+         * approximate.
+         */
         private const val DEFAULT_CAPACITY_MAH: Int = 4000
     }
 }
