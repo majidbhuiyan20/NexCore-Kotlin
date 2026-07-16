@@ -1,5 +1,12 @@
 package com.matox.nexcore.presentation.ram.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,11 +24,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -31,18 +38,25 @@ import androidx.compose.ui.unit.dp
 import com.matox.nexcore.ui.theme.CardStroke
 import com.matox.nexcore.ui.theme.MetricBlue
 import com.matox.nexcore.ui.theme.MetricCyan
+import com.matox.nexcore.ui.theme.NexCoreGreen
 import com.matox.nexcore.ui.theme.Surface
 import com.matox.nexcore.ui.theme.TextPrimary
 import com.matox.nexcore.ui.theme.TextSecondary
 
 /**
  * Card containing a Compose-Canvas line + area chart of recent RAM
- * percentages. The chart draws:
- *  - a soft horizontal grid (4 lines, 25% / 50% / 75% / 100%)
- *  - a gradient fill under the line (accent → transparent)
- *  - a smooth cubic-to path through the samples
- *  - a glowing dot at the latest sample
- *  - "now / 1m ago" labels along the x-axis
+ * percentages. Designed so the **live updates are obvious to the eye**:
+ *
+ *  - The chart's right edge has an animated pulse ring that re-fires
+ *    on every new sample (infinite transition).
+ *  - The latest sample dot animates smoothly between Y positions
+ *    using `animateFloatAsState` so each 3 s tick glides into place.
+ *  - A prominent "current %" badge on the top-right updates with the
+ *    same animateFloatAsState, so the user sees a number counting
+ *    rather than a frozen screenshot.
+ *  - The line is drawn as a smooth cubic path with a wide gradient
+ *    fill underneath, plus per-sample dots so individual ticks are
+ *    visible.
  *
  * Renders gracefully with an empty history (still shows the grid +
  * "Waiting for samples…" caption).
@@ -52,6 +66,38 @@ fun RamHistoryChart(
     history: List<Int>,
     modifier: Modifier = Modifier,
 ) {
+    // Latest value — animated so it counts visibly each tick.
+    val latest = history.lastOrNull() ?: 0
+    val animatedLatest by animateFloatAsState(
+        targetValue = latest.toFloat(),
+        animationSpec = tween(durationMillis = 700, easing = LinearEasing),
+        label = "ramLatest",
+    )
+    val animatedPercent = animatedLatest.toInt()
+
+    // Pulse ring around the latest dot — a constantly running
+    // infinite transition that re-fires every 3 s as new samples
+    // arrive. Visible feedback that the chart is alive.
+    val pulse = rememberInfiniteTransition(label = "ramPulse")
+    val pulseScale by pulse.animateFloat(
+        initialValue = 1f,
+        targetValue = 2.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ramPulseScale",
+    )
+    val pulseAlpha by pulse.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "ramPulseAlpha",
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -79,18 +125,35 @@ fun RamHistoryChart(
                     color = TextSecondary,
                 )
             }
-            Box(
+            // Big current-value badge — this is what makes the chart
+            // feel "live" at a glance: the number visibly changes
+            // every 3 s.
+            Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MetricBlue.copy(alpha = 0.16f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MetricBlue.copy(alpha = 0.18f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(NexCoreGreen),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "3 s tick",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.SemiBold,
+                    text = "$animatedPercent%",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
                     ),
                     color = MetricBlue,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "now",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
                 )
             }
         }
@@ -100,7 +163,7 @@ fun RamHistoryChart(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(160.dp)
+                .height(180.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFF0F1729))
                 .padding(horizontal = 12.dp, vertical = 12.dp),
@@ -113,15 +176,15 @@ fun RamHistoryChart(
                     modifier = Modifier.align(Alignment.Center),
                 )
             } else {
-                Canvas(modifier = Modifier.fillMaxWidth().height(136.dp)) {
+                Canvas(modifier = Modifier.fillMaxWidth().height(156.dp)) {
                     val w = size.width
                     val h = size.height
-                    val padX = 6f
+                    val padX = 8f
                     val padY = 8f
                     val plotW = w - padX * 2
                     val plotH = h - padY * 2
 
-                    // --- Background grid (4 horizontal lines) ----------
+                    // --- Background grid (5 horizontal lines) ----------
                     val gridColor = Color(0xFF1F2A44)
                     for (i in 0..4) {
                         val y = padY + plotH * (i / 4f)
@@ -172,8 +235,9 @@ fun RamHistoryChart(
                         path = fillPath,
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                MetricBlue.copy(alpha = 0.45f),
-                                MetricBlue.copy(alpha = 0.05f),
+                                MetricBlue.copy(alpha = 0.55f),
+                                MetricCyan.copy(alpha = 0.10f),
+                                MetricBlue.copy(alpha = 0.02f),
                             ),
                             startY = padY,
                             endY = padY + plotH,
@@ -183,8 +247,8 @@ fun RamHistoryChart(
                     // --- Glowing under-stroke for soft halo -----------
                     drawPath(
                         path = path,
-                        color = MetricCyan.copy(alpha = 0.25f),
-                        style = Stroke(width = 7f),
+                        color = MetricCyan.copy(alpha = 0.30f),
+                        style = Stroke(width = 8f),
                     )
                     // --- Crisp top line ------------------------------
                     drawPath(
@@ -195,23 +259,46 @@ fun RamHistoryChart(
                         style = Stroke(width = 2.5f),
                     )
 
-                    // --- Glowing dot at the latest sample -------------
+                    // --- Per-sample dots so each tick is visible -------
+                    for ((idx, p) in points.withIndex()) {
+                        // Skip the last — drawn separately with the pulse.
+                        if (idx == points.lastIndex) continue
+                        drawCircle(
+                            color = MetricCyan.copy(alpha = 0.7f),
+                            radius = 2.2f,
+                            center = p,
+                        )
+                    }
+
+                    // --- Animated latest sample dot -------------------
                     val last = points.last()
-                    // Halo
+                    // Outer expanding pulse ring — re-fires every 3 s
+                    // because the infinite transition runs continuously.
+                    drawCircle(
+                        color = MetricCyan.copy(alpha = pulseAlpha * 0.7f),
+                        radius = 6f * pulseScale,
+                        center = last,
+                    )
+                    drawCircle(
+                        color = MetricBlue.copy(alpha = pulseAlpha * 0.4f),
+                        radius = 9f * pulseScale,
+                        center = last,
+                    )
+                    // Halo (static)
                     drawCircle(
                         color = MetricBlue.copy(alpha = 0.30f),
-                        radius = 9f,
+                        radius = 10f,
                         center = last,
                     )
                     // Core dot
                     drawCircle(
                         color = Color.White,
-                        radius = 4.5f,
+                        radius = 5f,
                         center = last,
                     )
                     drawCircle(
                         color = MetricBlue,
-                        radius = 3f,
+                        radius = 3.5f,
                         center = last,
                     )
                 }

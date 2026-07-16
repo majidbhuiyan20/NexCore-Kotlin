@@ -42,7 +42,12 @@ class StorageAnalyzerProvider(
         val videosGb = queryMediaSize(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
         val audioGb = queryMediaSize(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI)
         val downloadsGb = queryDownloadsSize()
-        val appsGb = sumInstalledAppsSizeGb()
+        // Split apps into user-installed vs system so the screen can
+        // surface the difference between the two.
+        val (userAppsGb, systemAppsGb) = sumInstalledAppsSizeGb()
+
+        // Total apps footprint = userAppsGb + systemAppsGb.
+        val appsGb = userAppsGb + systemAppsGb
 
         val known = imagesGb + videosGb + appsGb + audioGb + downloadsGb
         val remaining = max(0f, usedGb - known)
@@ -56,10 +61,12 @@ class StorageAnalyzerProvider(
             category("cat_images", "Images", imagesGb, totalGb, MetricAccent.PINK),
             category("cat_videos", "Videos", videosGb, totalGb, MetricAccent.PURPLE),
             category("cat_apps", "Apps", appsGb, totalGb, MetricAccent.BLUE),
+            category("cat_system_apps", "System apps", systemAppsGb, totalGb, MetricAccent.VIOLET),
+            category("cat_user_apps", "User apps", userAppsGb, totalGb, MetricAccent.GREEN),
             category("cat_documents", "Documents", documentsGb, totalGb, MetricAccent.ORANGE),
             category("cat_audio", "Audio", audioGb, totalGb, MetricAccent.CYAN),
             category("cat_downloads", "Downloads", downloadsGb, totalGb, MetricAccent.TEAL),
-            category("cat_others", "Others", othersGb, totalGb, MetricAccent.GREEN),
+            category("cat_others", "Others", othersGb, totalGb, MetricAccent.RED),
         )
 
         val largeFiles = queryTopLargeFiles()
@@ -133,22 +140,26 @@ class StorageAnalyzerProvider(
 
     // --- Apps ---------------------------------------------------------------
 
-    private fun sumInstalledAppsSizeGb(): Float {
+    /**
+     * Returns `(userAppsGb, systemAppsGb)`. Sum covers `sourceDir`
+     * (the APK) only — fast, public, no permission required.
+     */
+    private fun sumInstalledAppsSizeGb(): Pair<Float, Float> {
         return try {
             val pm = appContext.packageManager
             val flags = android.content.pm.PackageManager.GET_META_DATA
             val installed = pm.getInstalledApplications(flags)
-            var total = 0L
+            var userTotal = 0L
+            var systemTotal = 0L
             for (app in installed) {
-                // Skip system apps — they're typically not user-cleanable
-                // and inflate the count without being meaningful on Home.
-                if ((app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) continue
+                val isSystem = (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
                 val dir = app.sourceDir ?: continue
-                runCatching { total += java.io.File(dir).length() }
+                val size = runCatching { java.io.File(dir).length() }.getOrDefault(0L)
+                if (isSystem) systemTotal += size else userTotal += size
             }
-            bytesToGb(total.toFloat())
+            bytesToGb(userTotal.toFloat()) to bytesToGb(systemTotal.toFloat())
         } catch (_: Throwable) {
-            0f
+            0f to 0f
         }
     }
 

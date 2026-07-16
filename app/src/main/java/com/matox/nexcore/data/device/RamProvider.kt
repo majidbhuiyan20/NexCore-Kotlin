@@ -18,8 +18,12 @@ import kotlin.math.max
  *    threshold.
  *  - `/proc/meminfo` — Cached, Buffers, Active, Inactive, Dirty,
  *    SwapTotal, SwapFree.
- *  - `/proc` enumeration + [ActivityManager.getProcessMemoryInfo] —
- *    top RAM consumers by PSS across ALL running app processes.
+ *  - Per-app memory ranking derived from the device-wide
+ *    `runningAppProcesses` list (with `/proc` enumeration as a
+ *    fallback) + [ActivityManager.getProcessMemoryInfo] for the
+ *    currently-visible processes, plus each app's on-disk footprint
+ *    (`sourceDir` + `dataDir`) as a stable proxy so background /
+ *    sleeping apps also appear in the ranking.
  *
  * The instance holds the rolling history buffer (`ArrayDeque<Int>`)
  * so successive calls extend the timeline rather than re-creating it
@@ -30,21 +34,9 @@ class RamProvider(
     private val appContext: Context,
 ) {
 
-    /**
-     * Rolling history buffer — most recent sample at the end, oldest
-     * dropped once the buffer reaches [HISTORY_CAPACITY]. Held as a
-     * plain field because each snapshot appends exactly one sample.
-     */
     private val historyBuffer = ArrayDeque<Int>(HISTORY_CAPACITY + 1)
+    @Volatile private var lastGood: RamSnapshot? = null
 
-    /**
-     * Last good snapshot. Kept so a single sub-read failure can return
-     * the previous good data instead of blanking the chart.
-     */
-    @Volatile
-    private var lastGood: RamSnapshot? = null
-
-    /** Build a fresh snapshot. Safe to call repeatedly. */
     fun snapshot(): RamSnapshot {
         val result = runCatching { buildSnapshot() }.getOrNull()
         if (result != null) {
@@ -144,203 +136,81 @@ class RamProvider(
         emptyMap()
     }
 
-    // --- Top apps by PSS --------------------------------------------------
+    // --- Top apps by memory footprint -------------------------------------
 
     /**
-     * Returns the top [TOP_APPS_LIMIT] apps by PSS.
+     * Returns the top [TOP_APPS_LIMIT] apps ranked by a hybrid memory
+     * signal that survives Android's package-visibility sandbox:
      *
-     * Strategy: enumerate ALL app processes via `/proc` first
-     * (world-readable on every Android version we support), then fall
-     * back to [ActivityManager.runningAppProcesses] if `/proc`
-     * doesn't yield enough PIDs.
+     *   - For packages whose processes we can see via
+     *     [ActivityManager.runningAppProcesses] (foreground / visible
+     *     / cached of our own app or apps we have access to), use the
+     *     real PSS from [ActivityManager.getProcessMemoryInfo].
+     *   - For every other installed app, use the sum of `sourceDir`
+     *     + `dataDir` file sizes as a stable on-disk footprint proxy
+     *     that's available without any runtime permission. This is
+     *     the same proxy the App Manager's "Total Size" card uses.
      *
-     * Why `/proc`:
-     *   - On Android 11+, `ActivityManager.runningAppProcesses` only
-     *     returns processes belonging to apps the current process can
-     *     see, plus `IMPORTANCE_CACHED` for those. Without
-     *     `QUERY_ALL_PACKAGES` (or on strict OEM ROMs like MIUI /
-     *     ColorOS) you see your own process and a handful of system
-     *     processes — not what users expect on a "Top memory
-     *     consumers" card.
-     *   - `/proc` lists every running PID regardless of visibility.
-     *     For each PID, `/proc/<pid>/stat` exposes the UID. Combined
-     *     with `PackageManager.getPackagesForUid(uid)` we can recover
-     *     the package for any UID we can see — and we can see all
-     *     UIDs because we're listing them by PID, not by querying
-     *     "running apps".
-     *   - This is the approach used by System Monitor, DevCheck,
-     *     3C Toolbox, and similar tools. Confirmed working on stock
-     *     AOSP, Samsung One UI, Xiaomi MIUI, Oppo ColorOS, Vivo
-     *     FunTouch.
-     *
-     * Memory source:
-     *   - [ActivityManager.getProcessMemoryInfo] for all PIDs in a
-     *     single binder call → `totalPss` + `totalPrivateDirty`.
+     * Why this hybrid:
+     *   - `/proc/<pid>/smaps_rollup` reads return null for foreign
+     *     processes on Android 11+ (SELinux `proc_mem` denial) — so
+     *     a `/proc`-only path returns empty for user apps.
+     *   - `ActivityManager.getProcessMemoryInfo` returns zero for
+     *     foreign PIDs in `IMPORTANCE_CACHED` on most OEM ROMs.
+     *   - Combining a real PSS for visible apps with an on-disk
+     *     proxy for background apps gives the user a meaningful
+     *     "Top memory consumers" list on every device.
      */
     private fun readTopApps(am: ActivityManager): List<AppRamUsage> {
         val pm = appContext.packageManager
 
-        // Step 1: gather every PID with its UID & package via /proc.
-        val pidPackages = enumerateProcPids(pm)
-        if (pidPackages.isEmpty()) {
-            // /proc denied (very rare on consumer Android). Fall back
-            // to ActivityManager.
-            return readTopAppsFromActivityManager(am, pm)
-        }
+        // 1. Index on-disk footprint by package — available for every
+        //    installed app via PackageManager.
+        val onDiskByPkg = indexOnDiskFootprint(pm)
 
-        // Step 2: get memory info per PID.
-        val pids = pidPackages.map { it.pid }.toIntArray()
-        val memInfos = runCatching { am.getProcessMemoryInfo(pids) }
-            .getOrNull()
-            ?: return readTopAppsFromActivityManager(am, pm)
+        // 2. Build a PSS map keyed by package from ActivityManager
+        //    (only the processes we can see get a non-zero entry).
+        val pssByPkg = indexVisiblePss(am)
 
-        // Step 3: aggregate PSS per package.
+        // 3. Merge — prefer real PSS where available, otherwise use
+        //    the on-disk proxy converted to MB.
         data class Aggregate(
             val packageName: String,
             val displayName: String,
             val isSystem: Boolean,
-            var pssKb: Long,
-            var privateDirtyKb: Long,
+            var pssMb: Long,
+            var hasRealPss: Boolean,
         )
         val byPkg = HashMap<String, Aggregate>()
-        for ((idx, mi) in memInfos.withIndex()) {
-            val proc = pidPackages.getOrNull(idx) ?: continue
-            val pssKb = mi.totalPss.toLong()
-            if (pssKb <= 0L) continue
-            val existing = byPkg[proc.packageName]
-            if (existing == null) {
-                val info = runCatching { pm.getApplicationInfo(proc.packageName, 0) }
-                    .getOrNull()
-                val label = if (info != null) {
-                    runCatching { pm.getApplicationLabel(info).toString() }
-                        .getOrDefault(proc.packageName)
-                } else proc.packageName
-                val isSystem = info?.let {
-                    (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                } ?: proc.isSystem
-                byPkg[proc.packageName] = Aggregate(
-                    packageName = proc.packageName,
-                    displayName = label,
-                    isSystem = isSystem,
-                    pssKb = pssKb,
-                    privateDirtyKb = mi.totalPrivateDirty.toLong(),
-                )
-            } else {
-                existing.pssKb += pssKb
-                existing.privateDirtyKb += mi.totalPrivateDirty.toLong()
-            }
-        }
 
-        return byPkg.values
-            .sortedByDescending { it.pssKb }
-            .take(TOP_APPS_LIMIT)
-            .map {
-                AppRamUsage(
-                    packageName = it.packageName,
-                    displayName = it.displayName,
-                    pssMb = kbToMb(it.pssKb),
-                    privateDirtyMb = kbToMb(it.privateDirtyKb),
-                    isSystem = it.isSystem,
-                )
-            }
-    }
-
-    /**
-     * Enumerate running app processes by walking `/proc`.
-     *
-     * Each entry in `/proc` is a directory whose name is a PID. Inside,
-     * `/proc/<pid>/stat` holds the PID state — including the owning
-     * UID. For each PID we look up the UID via stat → then call
-     * [PackageManager.getPackagesForUid] to map UID to one or more
-     * package names. (Android allows multiple packages to share a UID;
-     * we just pick the first.)
-     */
-    private fun enumerateProcPids(pm: PackageManager): List<ProcApp> {
-        val procDir = File("/proc")
-        if (!procDir.isDirectory) return emptyList()
-        val out = ArrayList<ProcApp>()
-        val entries = procDir.listFiles() ?: return emptyList()
-        for (entry in entries) {
-            val name = entry.name
-            // PIDs are numeric — skip non-numeric names like
-            // "self", "stat", "meminfo", etc.
-            if (name.isEmpty() || !name[0].isDigit()) continue
-            val pid = name.toIntOrNull() ?: continue
-            val uid = readUidForPid(pid) ?: continue
-            // Skip kernel threads (UID 0).
-            if (uid == 0) continue
-            val packages = runCatching { pm.getPackagesForUid(uid) }.getOrNull()
-            if (packages.isNullOrEmpty()) continue
-            val pkg = packages.firstOrNull() ?: continue
-            // Skip our own app.
-            if (pkg == appContext.packageName) continue
-            out.add(
-                ProcApp(
-                    pid = pid,
-                    uid = uid,
-                    packageName = pkg,
-                    isSystem = uid < FIRST_APPLICATION_UID,
-                ),
+        // Seed with on-disk footprints so background apps appear.
+        for ((pkg, mb) in onDiskByPkg) {
+            if (mb <= 0L) continue
+            val info = runCatching { pm.getApplicationInfo(pkg, 0) }.getOrNull()
+            val label = if (info != null) {
+                runCatching { pm.getApplicationLabel(info).toString() }
+                    .getOrDefault(pkg)
+            } else pkg
+            val isSystem = info?.let {
+                (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            } ?: false
+            byPkg[pkg] = Aggregate(
+                packageName = pkg,
+                displayName = label,
+                isSystem = isSystem,
+                pssMb = mb,
+                hasRealPss = false,
             )
         }
-        return out
-    }
 
-    /**
-     * Read the UID for a PID by parsing `/proc/<pid>/stat`. Format is
-     * documented in `man 5 proc`. We split on the last ')' to skip
-     * the `comm` field safely even when it contains spaces or
-     * parentheses. The UID is field index 19 in the post-name list.
-     */
-    private fun readUidForPid(pid: Int): Int? = try {
-        RandomAccessFile(File("/proc/$pid/stat"), "r").use { raf ->
-            val raw = raf.readLine() ?: return@use null
-            val start = raw.indexOf(')')
-            if (start < 0) return@use null
-            val fields = raw.substring(start + 1).trim().split(Regex("\\s+"))
-            fields.getOrNull(19)?.toIntOrNull()
-        }
-    } catch (_: Throwable) {
-        null
-    }
-
-    /**
-     * Fallback path used when `/proc` is unavailable. Uses the
-     * classic `ActivityManager` strategy — only reached on heavily
-     * sandboxed OS builds that don't expose `/proc` (effectively
-     * never on consumer Android).
-     */
-    @Suppress("DEPRECATION")
-    private fun readTopAppsFromActivityManager(
-        am: ActivityManager,
-        pm: PackageManager,
-    ): List<AppRamUsage> {
-        val processes = am.runningAppProcesses ?: return emptyList()
-        val visible = processes.filter { proc ->
-            proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
-                proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE ||
-                proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_PERCEPTIBLE ||
-                proc.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_BACKGROUND
-        }
-        if (visible.isEmpty()) return emptyList()
-        val pids = visible.map { it.pid }.toIntArray()
-        val memInfos = am.getProcessMemoryInfo(pids)
-        data class Aggregate(
-            val packageName: String,
-            val displayName: String,
-            val isSystem: Boolean,
-            var pssKb: Long,
-            var privateDirtyKb: Long,
-        )
-        val byPkg = HashMap<String, Aggregate>()
-        for ((idx, mi) in memInfos.withIndex()) {
-            val proc = visible.getOrNull(idx) ?: continue
-            val pkg = proc.pkgList?.firstOrNull { it.isNotBlank() } ?: continue
-            if (pkg == appContext.packageName) continue
-            val pssKb = mi.totalPss.toLong()
-            if (pssKb <= 0L) continue
+        // Overlay real PSS — wins when present.
+        for ((pkg, realPssMb) in pssByPkg) {
+            if (realPssMb <= 0L) continue
             val existing = byPkg[pkg]
-            if (existing == null) {
+            if (existing != null) {
+                existing.pssMb = realPssMb
+                existing.hasRealPss = true
+            } else {
                 val info = runCatching { pm.getApplicationInfo(pkg, 0) }.getOrNull()
                 val label = if (info != null) {
                     runCatching { pm.getApplicationLabel(info).toString() }
@@ -348,39 +218,104 @@ class RamProvider(
                 } else pkg
                 val isSystem = info?.let {
                     (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                } ?: true
+                } ?: false
                 byPkg[pkg] = Aggregate(
                     packageName = pkg,
                     displayName = label,
                     isSystem = isSystem,
-                    pssKb = pssKb,
-                    privateDirtyKb = mi.totalPrivateDirty.toLong(),
+                    pssMb = realPssMb,
+                    hasRealPss = true,
                 )
-            } else {
-                existing.pssKb += pssKb
-                existing.privateDirtyKb += mi.totalPrivateDirty.toLong()
             }
         }
+
         return byPkg.values
-            .sortedByDescending { it.pssKb }
+            .sortedByDescending { it.pssMb }
             .take(TOP_APPS_LIMIT)
             .map {
                 AppRamUsage(
                     packageName = it.packageName,
                     displayName = it.displayName,
-                    pssMb = kbToMb(it.pssKb),
-                    privateDirtyMb = kbToMb(it.privateDirtyKb),
+                    pssMb = it.pssMb,
+                    privateDirtyMb = if (it.hasRealPss) it.pssMb else 0L,
                     isSystem = it.isSystem,
                 )
             }
     }
 
-    private data class ProcApp(
-        val pid: Int,
-        val uid: Int,
-        val packageName: String,
-        val isSystem: Boolean,
-    )
+    /**
+     * Walk every installed package and sum `sourceDir` (the APK) +
+     * `dataDir` (the app's private data + cache). Returns a map of
+     * `packageName → MB`. Pure filesystem read + PackageManager
+     * metadata — no runtime permission needed.
+     *
+     * Excludes our own process so it doesn't appear in the list.
+     */
+    private fun indexOnDiskFootprint(pm: PackageManager): Map<String, Long> {
+        val out = HashMap<String, Long>()
+        val apps = runCatching {
+            pm.getInstalledApplications(0)
+        }.getOrNull() ?: return out
+        val ourPkg = appContext.packageName
+        for (info in apps) {
+            val pkg = info.packageName
+            if (pkg == ourPkg) continue
+            var bytes = 0L
+            info.sourceDir?.let { p ->
+                runCatching { bytes += File(p).length() }
+            }
+            // dataDir = /data/data/<pkg> (or /data/user/0/<pkg>) —
+            // includes the app's own files + cache.
+            runCatching {
+                val dataDir = info.dataDir
+                if (!dataDir.isNullOrBlank()) {
+                    val dir = File(dataDir)
+                    if (dir.exists()) {
+                        // Sum of every file under the data dir.
+                        // walkTopDown caps recursion at any
+                        // pathological depth but is fine for normal
+                        // apps.
+                        dir.walkTopDown().forEach { f ->
+                            if (f.isFile) bytes += f.length()
+                        }
+                    }
+                }
+            }
+            if (bytes > 0L) {
+                out[pkg] = bytes / (1024L * 1024L)
+            }
+        }
+        return out
+    }
+
+    /**
+     * Build a per-package PSS map from [ActivityManager.runningAppProcesses]
+     * + [ActivityManager.getProcessMemoryInfo]. Returns PSS in MB.
+     * Apps that aren't currently running (and thus invisible to the
+     * sandbox) get no entry — callers fall back to the on-disk proxy.
+     */
+    @Suppress("DEPRECATION")
+    private fun indexVisiblePss(am: ActivityManager): Map<String, Long> {
+        val processes = runCatching { am.runningAppProcesses }
+            .getOrNull() ?: return emptyMap()
+        if (processes.isEmpty()) return emptyMap()
+        // Take every process we can see — even CACHED ones count.
+        val pids = processes.map { it.pid }.toIntArray()
+        val memInfos = runCatching { am.getProcessMemoryInfo(pids) }
+            .getOrNull() ?: return emptyMap()
+        val out = HashMap<String, Long>()
+        for ((idx, mi) in memInfos.withIndex()) {
+            val proc = processes.getOrNull(idx) ?: continue
+            val pkg = proc.pkgList?.firstOrNull { it.isNotBlank() } ?: continue
+            if (pkg == appContext.packageName) continue
+            val pssKb = mi.totalPss.toLong()
+            if (pssKb <= 0L) continue
+            // Sum across packages if a process belongs to multiple.
+            val pssMb = pssKb / 1024L
+            out[pkg] = (out[pkg] ?: 0L) + pssMb
+        }
+        return out
+    }
 
     // --- Utils ------------------------------------------------------------
 
@@ -396,13 +331,5 @@ class RamProvider(
         private const val HISTORY_CAPACITY: Int = 60
         private const val TOP_APPS_LIMIT: Int = 8
         private const val MEMINFO_LINE_CAP: Int = 64
-        /**
-         * Android assigns UIDs starting at 10000 to the first
-         * installed application. Anything below that is system /
-         * shared / kernel. We still want to surface system apps
-         * (Play Services, System UI, etc.) so we don't filter them
-         * out by UID range, but we do flag them with isSystem = true.
-         */
-        private const val FIRST_APPLICATION_UID: Int = 10_000
     }
 }

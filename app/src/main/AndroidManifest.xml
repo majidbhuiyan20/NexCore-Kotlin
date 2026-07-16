@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Legacy storage permission for pre-Android 13 devices. On API 33+
+         this is silently ignored and the granular READ_MEDIA_* perms
+         are used instead. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- Android 11+ package visibility. QUERY_ALL_PACKAGES is the
          unrestricted option (Play Store review required) and is what
