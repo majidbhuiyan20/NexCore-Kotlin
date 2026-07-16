@@ -7,6 +7,7 @@ import com.matox.nexcore.domain.model.BottomNavIcon
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.domain.model.DashboardSnapshot
 import com.matox.nexcore.domain.model.DeviceHealth
+import com.matox.nexcore.domain.model.DeviceMetrics
 import com.matox.nexcore.domain.model.InfoCardData
 import com.matox.nexcore.domain.model.MetricAccent
 import com.matox.nexcore.domain.model.MetricType
@@ -32,12 +33,17 @@ private val PreviewSnapshot = DashboardSnapshot(
         label = "NexCore Score",
         status = ScoreStatus.Excellent,
     ),
-    metrics = listOf(
-        SystemMetric(MetricType.RAM, "RAM", 62f, "4.1 GB", "/ 8 GB", MetricAccent.BLUE),
-        SystemMetric(MetricType.STORAGE, "Storage", 48f, "123 GB", "/ 256 GB", MetricAccent.PURPLE),
-        SystemMetric(MetricType.BATTERY, "Battery", 82f, "82%", "Charging", MetricAccent.GREEN),
-        SystemMetric(MetricType.CPU, "CPU", 22f, "22%", "1.2 GHz", MetricAccent.ORANGE),
-        SystemMetric(MetricType.TEMPERATURE, "Temp", 33f, "33°C", "Normal", MetricAccent.RED),
+    liveMetrics = DeviceMetrics(
+        ramUsedGb = 4.1f,
+        ramTotalGb = 8f,
+        ramPercent = 62,
+        storageUsedGb = 123f,
+        storageTotalGb = 256f,
+        storagePercent = 48,
+        batteryPercent = 82,
+        batteryStatusLabel = "Charging",
+        cpuPercent = 22,
+        temperatureC = 33,
     ),
     health = DeviceHealth(
         title = "Your device is in great health",

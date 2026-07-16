@@ -9,7 +9,7 @@ package com.matox.nexcore.domain.model
 data class DashboardSnapshot(
     val greeting: UserGreeting,
     val nexCoreScore: NexCoreScore,
-    val metrics: List<SystemMetric>,
+    val liveMetrics: DeviceMetrics,
     val health: DeviceHealth,
     val quickActions: List<QuickAction>,
     val installedApps: InfoCardData,
