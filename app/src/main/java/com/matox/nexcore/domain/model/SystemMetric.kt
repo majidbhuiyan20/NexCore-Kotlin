@@ -36,8 +36,12 @@ enum class MetricType {
  */
 enum class MetricAccent {
     BLUE,
+    CYAN,
     PURPLE,
+    VIOLET,
     GREEN,
     ORANGE,
     RED,
+    PINK,
+    TEAL,
 }
