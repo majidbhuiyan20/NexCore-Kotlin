@@ -7,6 +7,7 @@ import com.matox.nexcore.domain.model.DashboardSnapshot
 import com.matox.nexcore.domain.model.DeviceMetrics
 import com.matox.nexcore.domain.model.DeviceHealth
 import com.matox.nexcore.domain.model.InfoCardData
+import com.matox.nexcore.domain.model.InstalledAppsCount
 import com.matox.nexcore.domain.model.MetricAccent
 import com.matox.nexcore.domain.model.NexCoreScore
 import com.matox.nexcore.domain.model.QuickAction
@@ -15,6 +16,7 @@ import com.matox.nexcore.domain.model.ScoreStatus
 import com.matox.nexcore.domain.model.UserGreeting
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 
 /**
@@ -117,17 +119,59 @@ class FakeDashboardLocalDataSource : DashboardLocalDataSource {
  * base snapshot supplies the static UI bits (greeting, health,
  * quick actions, info cards, bottom nav); the live metrics
  * overlay is the only thing that changes between emissions.
+ *
+ * If [installedAppsCountFlow] is provided, its latest value is
+ * also merged into the snapshot's `installedApps` InfoCardData
+ * so the home tile shows the real installed-app count instead of
+ * the hardcoded preview values.
  */
 class LiveDashboardLocalDataSource(
     private val base: DashboardSnapshot,
     private val provider: DeviceMetricsProvider,
+    private val installedAppsCountFlow: Flow<InstalledAppsCount>? = null,
     private val pollIntervalMs: Long = 3_000L,
 ) : DashboardLocalDataSource {
 
-    override fun snapshot(): Flow<DashboardSnapshot> = flow {
-        while (true) {
-            emit(base.copy(liveMetrics = provider.snapshot()))
-            delay(pollIntervalMs)
+    override fun snapshot(): Flow<DashboardSnapshot> {
+        // Tick flow: emits Unit immediately then every pollIntervalMs.
+        val ticks: Flow<Unit> = flow {
+            while (true) {
+                emit(Unit)
+                delay(pollIntervalMs)
+            }
+        }
+        // Optional count flow: starts with a null so the very first
+        // tick produces a snapshot without overriding the base card.
+        val countOrNull: Flow<InstalledAppsCount?> =
+            installedAppsCountFlow?.let { it.mapWithInitialNull() }
+                ?: kotlinx.coroutines.flow.flowOf(null)
+
+        return combine(ticks, countOrNull) { _, count ->
+            val metrics = provider.snapshot()
+            val withMetrics = base.copy(liveMetrics = metrics)
+            if (count != null) {
+                withMetrics.copy(installedApps = buildInstalledAppsCard(count))
+            } else {
+                withMetrics
+            }
         }
     }
+
+    private fun buildInstalledAppsCard(count: InstalledAppsCount): InfoCardData = InfoCardData(
+        id = "info_apps",
+        title = "Installed Apps",
+        bigValue = count.total.toString(),
+        unit = null,
+        footnotePrimary = "User Apps: ${count.user}",
+        footnoteSecondary = "System Apps: ${count.system}",
+        accent = MetricAccent.PURPLE,
+        showChevron = true,
+    )
 }
+
+/** Emit null first so combine() doesn't block waiting on the count. */
+private fun Flow<InstalledAppsCount>.mapWithInitialNull(): Flow<InstalledAppsCount?> =
+    kotlinx.coroutines.flow.flow {
+        emit(null)
+        collect { emit(it) }
+    }

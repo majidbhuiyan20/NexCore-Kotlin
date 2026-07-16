@@ -10,6 +10,42 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
+    <!-- Android 11+ package visibility. QUERY_ALL_PACKAGES is the
+         unrestricted option (Play Store review required) and is what
+         the App Manager needs in order to enumerate every user-
+         installed app (Messenger, Instagram, etc.). The narrower
+         <queries> blocks below are kept for clarity but on most
+         devices they alone don't reveal user apps to a normal app
+         process. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <queries>
+        <!-- Apps that respond to ACTION_MAIN / LAUNCHER (i.e. ones the
+             user can tap to open). Lets us call getLaunchIntentForPackage
+             for everything that actually has a launcher activity. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
+
+        <!-- Mirror the explicit package-visibility rules for the most
+             common user-app categories (messaging, social, music, video,
+             gallery, browser). Some OEM launchers respect these blocks
+             even when QUERY_ALL_PACKAGES isn't granted. -->
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
+
     <application
         android:name=".NexCoreApplication"
         android:allowBackup="true"

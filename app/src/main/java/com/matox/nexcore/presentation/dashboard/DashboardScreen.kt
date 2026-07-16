@@ -50,6 +50,9 @@ private val TopContentPadding: Dp = 4.dp
 fun DashboardScreen(
     modifier: Modifier = Modifier,
     onNavigateToStorageAnalyzer: () -> Unit = {},
+    onNavigateToAppManager: () -> Unit = {},
+    onNavigateToPhoneInfo: () -> Unit = {},
+    onBottomNavClick: (BottomNavItem) -> Unit = {},
 ) {
     val viewModel: DashboardViewModel = viewModel(
         factory = DashboardViewModel.Factory(AppContainer.dashboardRepository),
@@ -67,12 +70,16 @@ fun DashboardScreen(
         onHealthClick = {},
         onEditQuickActions = {},
         onQuickActionClick = { action ->
-            if (action.id == "qa_storage") {
-                onNavigateToStorageAnalyzer()
+            when (action.id) {
+                "qa_storage" -> onNavigateToStorageAnalyzer()
+                "qa_apps" -> onNavigateToAppManager()
+                "qa_phone" -> onNavigateToPhoneInfo()
             }
         },
-        onInfoCardClick = {},
-        onBottomNavClick = {},
+        onInfoCardClick = { card ->
+            if (card.id == "info_apps") onNavigateToAppManager()
+        },
+        onBottomNavClick = onBottomNavClick,
     )
 }
 
