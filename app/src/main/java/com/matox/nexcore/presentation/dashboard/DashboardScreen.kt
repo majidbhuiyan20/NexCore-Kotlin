@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.matox.nexcore.core.util.AppContainer
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.domain.model.InfoCardData
+import com.matox.nexcore.domain.model.MetricType
 import com.matox.nexcore.domain.model.QuickAction
 import com.matox.nexcore.domain.model.SystemMetric
 import com.matox.nexcore.presentation.dashboard.components.DashboardBottomBar
@@ -52,6 +53,7 @@ fun DashboardScreen(
     onNavigateToStorageAnalyzer: () -> Unit = {},
     onNavigateToAppManager: () -> Unit = {},
     onNavigateToPhoneInfo: () -> Unit = {},
+    onNavigateToRamDetail: () -> Unit = {},
     onBottomNavClick: (BottomNavItem) -> Unit = {},
 ) {
     val viewModel: DashboardViewModel = viewModel(
@@ -66,7 +68,9 @@ fun DashboardScreen(
         onSearchClick = {},
         onNotificationsClick = {},
         onInfoClick = {},
-        onMetricClick = {},
+        onMetricClick = { metric ->
+            if (metric.id == MetricType.RAM) onNavigateToRamDetail()
+        },
         onHealthClick = {},
         onEditQuickActions = {},
         onQuickActionClick = { action ->

@@ -5,17 +5,21 @@ import com.matox.nexcore.data.datasource.FakeDashboardLocalDataSource
 import com.matox.nexcore.data.datasource.LiveAppManagerDataSource
 import com.matox.nexcore.data.datasource.LiveDashboardLocalDataSource
 import com.matox.nexcore.data.datasource.LiveStorageAnalyzerDataSource
+import com.matox.nexcore.data.device.AppIconLoader
 import com.matox.nexcore.data.device.AppsProvider
 import com.matox.nexcore.data.device.DeviceMetricsProvider
 import com.matox.nexcore.data.device.PhoneInfoProvider
+import com.matox.nexcore.data.device.RamProvider
 import com.matox.nexcore.data.device.StorageAnalyzerProvider
 import com.matox.nexcore.data.repository.AppManagerRepositoryImpl
 import com.matox.nexcore.data.repository.DashboardRepositoryImpl
 import com.matox.nexcore.data.repository.PhoneInfoRepositoryImpl
+import com.matox.nexcore.data.repository.RamRepositoryImpl
 import com.matox.nexcore.data.repository.StorageAnalyzerRepositoryImpl
 import com.matox.nexcore.domain.repository.AppManagerRepository
 import com.matox.nexcore.domain.repository.DashboardRepository
 import com.matox.nexcore.domain.repository.PhoneInfoRepository
+import com.matox.nexcore.domain.repository.RamRepository
 import com.matox.nexcore.domain.repository.StorageAnalyzerRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -40,6 +44,10 @@ object AppContainer {
         private set
     lateinit var phoneInfoRepository: PhoneInfoRepository
         private set
+    lateinit var ramRepository: RamRepository
+        private set
+    lateinit var appIconLoader: AppIconLoader
+        private set
 
     /** Live installed-apps count shared with the home dashboard. */
     val installedAppsCountFlow
@@ -63,6 +71,8 @@ object AppContainer {
             val appsProvider = AppsProvider(context)
             val appsDataSource = LiveAppManagerDataSource(context, appsProvider)
             val phoneInfoProvider = PhoneInfoProvider(context)
+            val ramProvider = RamProvider(context)
+            val iconLoader = AppIconLoader(context)
 
             // The dashboard needs the live installed-apps count.
             dashboardRepository = DashboardRepositoryImpl(
@@ -77,6 +87,8 @@ object AppContainer {
             )
             appManagerRepository = AppManagerRepositoryImpl(appsDataSource)
             phoneInfoRepository = PhoneInfoRepositoryImpl(phoneInfoProvider)
+            ramRepository = RamRepositoryImpl(ramProvider)
+            appIconLoader = iconLoader
 
             initialized = true
         }

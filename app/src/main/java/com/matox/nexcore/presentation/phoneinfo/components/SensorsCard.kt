@@ -59,7 +59,7 @@ fun SensorsCard(
     sensors: SensorsInfo,
     modifier: Modifier = Modifier,
 ) {
-    val accent = MetricAccent.CYAN
+    val accent = MetricAccent.PINK
     val accentColor = accent.toColor()
     var expanded by remember { mutableStateOf(false) }
 

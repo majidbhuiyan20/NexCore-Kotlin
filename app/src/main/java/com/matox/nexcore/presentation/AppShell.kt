@@ -11,6 +11,7 @@ import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.presentation.appmanager.AppManagerScreen
 import com.matox.nexcore.presentation.dashboard.DashboardScreen
 import com.matox.nexcore.presentation.phoneinfo.PhoneInfoScreen
+import com.matox.nexcore.presentation.ram.RamScreen
 import com.matox.nexcore.presentation.storageanalyzer.StorageAnalyzerScreen
 
 /** Single navigation model for the app. Adding a new destination is
@@ -20,6 +21,7 @@ sealed class Screen {
     data object StorageAnalyzer : Screen()
     data object AppManager : Screen()
     data object PhoneInfo : Screen()
+    data object RamDetail : Screen()
 }
 
 private val ScreenSaver: Saver<Screen, String> = Saver(
@@ -29,6 +31,7 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             is Screen.StorageAnalyzer -> "storage_analyzer"
             is Screen.AppManager -> "app_manager"
             is Screen.PhoneInfo -> "phone_info"
+            is Screen.RamDetail -> "ram_detail"
         }
     },
     restore = { saved ->
@@ -36,6 +39,7 @@ private val ScreenSaver: Saver<Screen, String> = Saver(
             "storage_analyzer" -> Screen.StorageAnalyzer
             "app_manager" -> Screen.AppManager
             "phone_info" -> Screen.PhoneInfo
+            "ram_detail" -> Screen.RamDetail
             else -> Screen.Home
         }
     },
@@ -71,6 +75,7 @@ fun AppShell(
             onNavigateToStorageAnalyzer = { screen = Screen.StorageAnalyzer },
             onNavigateToAppManager = { screen = Screen.AppManager },
             onNavigateToPhoneInfo = { screen = Screen.PhoneInfo },
+            onNavigateToRamDetail = { screen = Screen.RamDetail },
             onBottomNavClick = { item: BottomNavItem ->
                 if (item.id == "nav_apps") screen = Screen.AppManager
             },
@@ -97,6 +102,16 @@ fun AppShell(
         is Screen.PhoneInfo -> PhoneInfoScreen(
             modifier = modifier,
             onBack = { screen = Screen.Home },
+        )
+        is Screen.RamDetail -> RamScreen(
+            modifier = modifier,
+            onBack = { screen = Screen.Home },
+            onBottomNavClick = { item: BottomNavItem ->
+                when (item.id) {
+                    "nav_home" -> screen = Screen.Home
+                    "nav_apps" -> screen = Screen.AppManager
+                }
+            },
         )
     }
 }

@@ -44,8 +44,10 @@ import com.matox.nexcore.ui.theme.BackgroundGradientTop
 import com.matox.nexcore.ui.theme.TextPrimary
 import com.matox.nexcore.ui.theme.TextSecondary
 
-/** Bottom padding so the list doesn't hide behind the floating dock. */
-private val BottomContentPadding: Dp = 120.dp
+/** Bottom padding the LazyColumn applies via `contentPadding` so the
+ *  last row can scroll up under the floating dock instead of stopping
+ *  mid-screen. ~110 dp = dock height + a comfortable visual gap. */
+private val ListBottomPadding: Dp = 96.dp
 
 /** Static bottom-nav used while on App Manager. */
 private val AppManagerBottomNav = listOf(
@@ -86,10 +88,14 @@ fun AppManagerScreen(
  * Render the App Manager with the standard fixed-top-bar +
  * scrollable-body + fixed-bottom-bar layout.
  *
- *  1. Background gradient (full-bleed)
- *  2. AppManagerTopBar (fixed at top)
- *  3. Stats row + filter tabs + search/sort bar + app list (scrollable)
- *  4. DashboardBottomBar (fixed at bottom)
+ * Layout (top → bottom):
+ *   1. Background gradient (full-bleed)
+ *   2. AppManagerTopBar (fixed at top)
+ *   3. Fixed header: stats row + filter tabs + search/sort bar
+ *   4. LazyColumn (fills remaining space, weighted 1f) — the list
+ *      runs all the way to the bottom of the screen; bottom
+ *      `contentPadding` keeps the last row above the dock visually.
+ *   5. DashboardBottomBar (fixed at bottom)
  */
 @Composable
 internal fun AppManagerContent(
@@ -121,36 +127,157 @@ internal fun AppManagerContent(
         Column(modifier = Modifier.fillMaxSize()) {
             AppManagerTopBar(onBackClick = onBack)
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(top = contentPadding.calculateTopPadding())
-                    .padding(bottom = BottomContentPadding),
-            ) {
-                Spacer(modifier = Modifier.height(4.dp))
-
-                when (state) {
-                    AppManagerUiState.Loading -> LoadingState()
-                    is AppManagerUiState.Error -> ErrorState(state.message)
-                    is AppManagerUiState.Success -> ReadyState(
+            when (state) {
+                AppManagerUiState.Loading -> Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .padding(top = contentPadding.calculateTopPadding()),
+                ) {
+                    LoadingState()
+                }
+                is AppManagerUiState.Error -> Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .padding(top = contentPadding.calculateTopPadding()),
+                ) {
+                    ErrorState(state.message)
+                }
+                is AppManagerUiState.Success -> Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = contentPadding.calculateTopPadding()),
+                ) {
+                    FixedHeader(
                         snapshot = state,
                         onSearchChange = onSearchChange,
                         onSortSelected = onSortSelected,
                         onTabSelected = onTabSelected,
+                    )
+
+                    // LazyColumn takes the rest of the screen height.
+                    // `weight(1f)` + `fillMaxSize()` on its modifier lets
+                    // it grow until the bottom dock; the bottom
+                    // contentPadding keeps the last row visible above
+                    // the dock even when fully scrolled.
+                    AppLazyList(
+                        snapshot = state,
                         onOpen = onOpen,
                         onInfo = onInfo,
                         onUninstall = onUninstall,
                         onDisable = onDisable,
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
             }
 
             DashboardBottomBar(
                 items = AppManagerBottomNav,
                 onItemClick = onBottomNavClick,
             )
+        }
+    }
+}
+
+/**
+ * Stats row + filter tabs + search/sort bar. Renders inline so the
+ * LazyColumn sibling can take all remaining vertical space.
+ */
+@Composable
+private fun FixedHeader(
+    snapshot: AppManagerUiState.Success,
+    onSearchChange: (String) -> Unit,
+    onSortSelected: (com.matox.nexcore.domain.model.AppSort) -> Unit,
+    onTabSelected: (com.matox.nexcore.domain.model.AppFilterTab) -> Unit,
+) {
+    AppStatsRow(
+        totalApps = snapshot.totalCount,
+        userApps = snapshot.userCount,
+        systemApps = snapshot.systemCount,
+        totalSizeBytes = snapshot.totalSizeBytes,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    AppFilterTabs(
+        selected = snapshot.tab,
+        onTabSelected = onTabSelected,
+    )
+
+    Spacer(modifier = Modifier.height(4.dp))
+
+    AppSearchSortBar(
+        query = snapshot.search,
+        sort = snapshot.sort,
+        onQueryChange = onSearchChange,
+        onSortSelected = onSortSelected,
+        onGridToggle = { /* grid view stubbed for now */ },
+    )
+
+    Spacer(modifier = Modifier.height(6.dp))
+}
+
+/**
+ * The actual app list. Renders the empty-state message inline when
+ * `filtered` is empty so the LazyColumn itself isn't laid out
+ * empty (which would leave a big black gap before the dock).
+ */
+@Composable
+private fun AppLazyList(
+    snapshot: AppManagerUiState.Success,
+    onOpen: (AppInfo) -> Unit,
+    onInfo: (AppInfo) -> Unit,
+    onUninstall: (AppInfo) -> Unit,
+    onDisable: (AppInfo) -> Unit,
+) {
+    if (snapshot.filtered.isEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "No apps match",
+                style = MaterialTheme.typography.titleSmall,
+                color = TextPrimary,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Try clearing the search or switching tabs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = ListBottomPadding),
+    ) {
+        items(
+            items = snapshot.filtered,
+            key = { it.packageName },
+        ) { app ->
+            AppListItem(
+                app = app,
+                onOpen = onOpen,
+                onInfo = onInfo,
+                onUninstall = onUninstall,
+                onDisable = onDisable,
+            )
+        }
+        // While the live snapshot is replacing the cached one, append
+        // 3 skeleton rows so the user sees something animating.
+        if (snapshot.isFromCache) {
+            items(count = 3, key = { "skeleton-$it" }) {
+                AppRowSkeleton()
+            }
         }
     }
 }
@@ -186,118 +313,5 @@ private fun ErrorState(message: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )
-    }
-}
-
-@Composable
-private fun ReadyState(
-    snapshot: AppManagerUiState.Success,
-    onSearchChange: (String) -> Unit,
-    onSortSelected: (com.matox.nexcore.domain.model.AppSort) -> Unit,
-    onTabSelected: (com.matox.nexcore.domain.model.AppFilterTab) -> Unit,
-    onOpen: (AppInfo) -> Unit,
-    onInfo: (AppInfo) -> Unit,
-    onUninstall: (AppInfo) -> Unit,
-    onDisable: (AppInfo) -> Unit,
-) {
-    AppStatsRow(
-        totalApps = snapshot.totalCount,
-        userApps = snapshot.userCount,
-        systemApps = snapshot.systemCount,
-        totalSizeBytes = snapshot.totalSizeBytes,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-    )
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    AppFilterTabs(
-        selected = snapshot.tab,
-        onTabSelected = onTabSelected,
-    )
-
-    Spacer(modifier = Modifier.height(4.dp))
-
-    AppSearchSortBar(
-        query = snapshot.search,
-        sort = snapshot.sort,
-        onQueryChange = onSearchChange,
-        onSortSelected = onSortSelected,
-        onGridToggle = { /* grid view stubbed for now */ },
-    )
-
-    Spacer(modifier = Modifier.height(6.dp))
-
-    // First paint = disk cache. Show skeleton + cached rows together
-    // so the user sees real data immediately while PackageManager
-    // refreshes silently in the background.
-    if (snapshot.isFromCache && snapshot.allApps.isNotEmpty()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 12.dp),
-        ) {
-            items(
-                items = snapshot.filtered,
-                key = { it.packageName },
-            ) { app ->
-                AppListItem(
-                    app = app,
-                    onOpen = onOpen,
-                    onInfo = onInfo,
-                    onUninstall = onUninstall,
-                    onDisable = onDisable,
-                )
-            }
-            // 3 skeleton rows at the bottom to hint "more coming".
-            items(count = 3, key = { "skeleton-$it" }) {
-                AppRowSkeleton()
-            }
-        }
-        return
-    }
-
-    // Live snapshot — render the list as before, but in a LazyColumn.
-    if (snapshot.filtered.isEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = "No apps match",
-                style = MaterialTheme.typography.titleSmall,
-                color = TextPrimary,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Try clearing the search or switching tabs.",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-            )
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 12.dp),
-        ) {
-            items(
-                items = snapshot.filtered,
-                key = { it.packageName },
-            ) { app ->
-                AppListItem(
-                    app = app,
-                    onOpen = onOpen,
-                    onInfo = onInfo,
-                    onUninstall = onUninstall,
-                    onDisable = onDisable,
-                )
-            }
-        }
     }
 }

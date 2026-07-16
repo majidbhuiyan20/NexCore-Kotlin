@@ -193,7 +193,7 @@ private fun ReadyState(snapshot: PhoneInfoSnapshot) {
         SectionCard(
             title = "OS Information",
             icon = Icons.Outlined.Devices,
-            accent = MetricAccent.GREEN,
+            accent = MetricAccent.ORANGE,
             modifier = Modifier.padding(horizontal = 16.dp),
             rows = listOf(
                 "Android version" to snapshot.os.androidVersion,

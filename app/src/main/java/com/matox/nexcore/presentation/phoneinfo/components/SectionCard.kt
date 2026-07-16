@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.matox.nexcore.core.ui.components.IconChip
 import com.matox.nexcore.core.util.toColor
 import com.matox.nexcore.domain.model.MetricAccent
-import com.matox.nexcore.ui.theme.CardStroke
 import com.matox.nexcore.ui.theme.Surface
 import com.matox.nexcore.ui.theme.TextPrimary
 import com.matox.nexcore.ui.theme.TextSecondary
@@ -62,7 +61,10 @@ fun SectionCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(Surface)
-            .border(1.dp, CardStroke, RoundedCornerShape(20.dp))
+            // Border uses the accent color at low alpha so each
+            // section card carries its own color identity without
+            // overwhelming the dark surface.
+            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
             .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -90,7 +92,7 @@ fun SectionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(CardStroke.copy(alpha = 0.5f)),
+                        .background(accentColor.copy(alpha = 0.18f)),
                 )
                 Spacer(modifier = Modifier.size(10.dp))
             }
