@@ -12,8 +12,6 @@ data class DashboardSnapshot(
     val metrics: List<SystemMetric>,
     val health: DeviceHealth,
     val quickActions: List<QuickAction>,
-    val storageUsage: StorageUsage,
-    val battery: BatteryDetails,
     val installedApps: InfoCardData,
     val dataUsage: InfoCardData,
     val notifications: InfoCardData,

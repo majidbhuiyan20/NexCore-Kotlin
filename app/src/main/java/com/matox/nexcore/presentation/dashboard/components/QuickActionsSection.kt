@@ -2,6 +2,7 @@ package com.matox.nexcore.presentation.dashboard.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Icon
@@ -31,6 +33,7 @@ fun QuickActionsSection(
     onActionClick: (QuickAction) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
+        // Header row + Edit shortcut
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -62,22 +65,29 @@ fun QuickActionsSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Split actions into rows of 5 (10 actions => 2 rows).
-        val rows = actions.chunked(5)
-        rows.forEachIndexed { rowIndex, rowItems ->
-            if (rowIndex > 0) Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowItems.forEach { action ->
-                    QuickActionTile(
-                        action = action,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onActionClick(action) },
-                    )
+        // Center the grid and cap its width on tablets
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(modifier = Modifier.widthIn(max = 600.dp)) {
+                val rows = actions.chunked(5)
+                rows.forEachIndexed { rowIndex, rowItems ->
+                    if (rowIndex > 0) Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        rowItems.forEach { action ->
+                            QuickActionTile(
+                                action = action,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onActionClick(action) },
+                            )
+                        }
+                    }
                 }
             }
         }

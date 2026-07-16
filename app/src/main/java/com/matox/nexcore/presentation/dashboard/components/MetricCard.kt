@@ -75,6 +75,7 @@ fun MetricCard(
                 text = metric.label,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = TextPrimary,
+                maxLines = 1,
             )
         }
 
@@ -105,12 +106,14 @@ fun MetricCard(
             text = metric.primaryValue,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             color = TextPrimary,
+            maxLines = 1,
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = metric.secondaryValue,
             style = MaterialTheme.typography.labelSmall,
             color = TextSecondary,
+            maxLines = 1,
         )
     }
 }

@@ -5,8 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.Modifier
 import com.matox.nexcore.presentation.dashboard.DashboardScreen
 import com.matox.nexcore.ui.theme.NexCoreTheme
@@ -17,13 +16,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             NexCoreTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    DashboardScreen(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                    )
-                }
+                // The dashboard renders its own gradient + fixed bottom
+                // navigation bar, and pads itself for the system status
+                // bar. No Scaffold needed.
+                DashboardScreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                )
             }
         }
     }

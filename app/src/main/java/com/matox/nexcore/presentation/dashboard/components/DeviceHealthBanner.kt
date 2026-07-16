@@ -55,8 +55,8 @@ fun DeviceHealthBanner(
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ShieldIllustration(modifier = Modifier.size(64.dp))
-        Spacer(modifier = Modifier.width(12.dp))
+        ShieldIllustration(modifier = Modifier.size(72.dp))
+        Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = health.title,

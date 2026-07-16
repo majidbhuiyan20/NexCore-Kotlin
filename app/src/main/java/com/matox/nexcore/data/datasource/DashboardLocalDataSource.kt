@@ -1,6 +1,5 @@
 package com.matox.nexcore.data.datasource
 
-import com.matox.nexcore.domain.model.BatteryDetails
 import com.matox.nexcore.domain.model.BottomNavIcon
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.domain.model.DashboardSnapshot
@@ -12,9 +11,6 @@ import com.matox.nexcore.domain.model.NexCoreScore
 import com.matox.nexcore.domain.model.QuickAction
 import com.matox.nexcore.domain.model.QuickActionIcon
 import com.matox.nexcore.domain.model.ScoreStatus
-import com.matox.nexcore.domain.model.StorageBreakdown
-import com.matox.nexcore.domain.model.StorageCategory
-import com.matox.nexcore.domain.model.StorageUsage
 import com.matox.nexcore.domain.model.SystemMetric
 import com.matox.nexcore.domain.model.UserGreeting
 import kotlinx.coroutines.flow.Flow
@@ -44,7 +40,7 @@ class FakeDashboardLocalDataSource : DashboardLocalDataSource {
             subtitle = "Keep it up!",
         ),
         nexCoreScore = NexCoreScore(
-            value = 94,
+            value = 90,
             label = "NexCore Score",
             status = ScoreStatus.Excellent,
         ),
@@ -106,21 +102,6 @@ class FakeDashboardLocalDataSource : DashboardLocalDataSource {
             QuickAction("qa_sensor", "Sensor\nMonitor", QuickActionIcon.SENSOR_MONITOR, MetricAccent.ORANGE),
             QuickAction("qa_phone", "Phone\nInfo", QuickActionIcon.PHONE_INFO, MetricAccent.CYAN),
             QuickAction("qa_backup", "Backup &\nRestore", QuickActionIcon.BACKUP_RESTORE, MetricAccent.PINK),
-        ),
-        storageUsage = StorageUsage(
-            totalUsedGb = 123,
-            breakdown = listOf(
-                StorageBreakdown(StorageCategory.IMAGES, 45, MetricAccent.VIOLET),
-                StorageBreakdown(StorageCategory.VIDEOS, 30, MetricAccent.BLUE),
-                StorageBreakdown(StorageCategory.APPS, 18, MetricAccent.GREEN),
-                StorageBreakdown(StorageCategory.DOCUMENTS, 8, MetricAccent.ORANGE),
-                StorageBreakdown(StorageCategory.OTHERS, 22, MetricAccent.PINK),
-            ),
-        ),
-        battery = BatteryDetails(
-            percent = 82,
-            isCharging = true,
-            temperatureC = 33,
         ),
         installedApps = InfoCardData(
             id = "info_apps",

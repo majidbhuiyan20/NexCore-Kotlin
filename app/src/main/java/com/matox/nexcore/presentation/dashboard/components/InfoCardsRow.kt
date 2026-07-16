@@ -1,10 +1,13 @@
 package com.matox.nexcore.presentation.dashboard.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.matox.nexcore.core.util.headerIcon
@@ -18,30 +21,35 @@ fun InfoCardsRow(
     modifier: Modifier = Modifier,
     onClick: (InfoCardData) -> Unit = {},
 ) {
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentAlignment = Alignment.TopCenter,
     ) {
-        InfoCardView(
-            data = installedApps,
-            icon = installedApps.headerIcon(),
-            modifier = Modifier.weight(1f),
-            onClick = { onClick(installedApps) },
-        )
-        InfoCardView(
-            data = dataUsage,
-            icon = dataUsage.headerIcon(),
-            showBarChart = true,
-            modifier = Modifier.weight(1f),
-            onClick = { onClick(dataUsage) },
-        )
-        InfoCardView(
-            data = notifications,
-            icon = notifications.headerIcon(),
-            modifier = Modifier.weight(1f),
-            onClick = { onClick(notifications) },
-        )
+        Row(
+            modifier = Modifier.widthIn(max = 600.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            InfoCardView(
+                data = installedApps,
+                icon = installedApps.headerIcon(),
+                modifier = Modifier.weight(1f),
+                onClick = { onClick(installedApps) },
+            )
+            InfoCardView(
+                data = dataUsage,
+                icon = dataUsage.headerIcon(),
+                showBarChart = true,
+                modifier = Modifier.weight(1f),
+                onClick = { onClick(dataUsage) },
+            )
+            InfoCardView(
+                data = notifications,
+                icon = notifications.headerIcon(),
+                modifier = Modifier.weight(1f),
+                onClick = { onClick(notifications) },
+            )
+        }
     }
 }

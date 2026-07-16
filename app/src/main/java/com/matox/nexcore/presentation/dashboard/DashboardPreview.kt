@@ -3,7 +3,6 @@ package com.matox.nexcore.presentation.dashboard
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.matox.nexcore.domain.model.BatteryDetails
 import com.matox.nexcore.domain.model.BottomNavIcon
 import com.matox.nexcore.domain.model.BottomNavItem
 import com.matox.nexcore.domain.model.DashboardSnapshot
@@ -15,9 +14,6 @@ import com.matox.nexcore.domain.model.NexCoreScore
 import com.matox.nexcore.domain.model.QuickAction
 import com.matox.nexcore.domain.model.QuickActionIcon
 import com.matox.nexcore.domain.model.ScoreStatus
-import com.matox.nexcore.domain.model.StorageBreakdown
-import com.matox.nexcore.domain.model.StorageCategory
-import com.matox.nexcore.domain.model.StorageUsage
 import com.matox.nexcore.domain.model.SystemMetric
 import com.matox.nexcore.domain.model.UserGreeting
 import com.matox.nexcore.presentation.dashboard.state.DashboardUiState
@@ -32,7 +28,7 @@ private val PreviewSnapshot = DashboardSnapshot(
         subtitle = "Keep it up!",
     ),
     nexCoreScore = NexCoreScore(
-        value = 94,
+        value = 90,
         label = "NexCore Score",
         status = ScoreStatus.Excellent,
     ),
@@ -60,17 +56,6 @@ private val PreviewSnapshot = DashboardSnapshot(
         QuickAction("qa_phone", "Phone\nInfo", QuickActionIcon.PHONE_INFO, MetricAccent.CYAN),
         QuickAction("qa_backup", "Backup &\nRestore", QuickActionIcon.BACKUP_RESTORE, MetricAccent.PINK),
     ),
-    storageUsage = StorageUsage(
-        totalUsedGb = 123,
-        breakdown = listOf(
-            StorageBreakdown(StorageCategory.IMAGES, 45, MetricAccent.VIOLET),
-            StorageBreakdown(StorageCategory.VIDEOS, 30, MetricAccent.BLUE),
-            StorageBreakdown(StorageCategory.APPS, 18, MetricAccent.GREEN),
-            StorageBreakdown(StorageCategory.DOCUMENTS, 8, MetricAccent.ORANGE),
-            StorageBreakdown(StorageCategory.OTHERS, 22, MetricAccent.PINK),
-        ),
-    ),
-    battery = BatteryDetails(percent = 82, isCharging = true, temperatureC = 33),
     installedApps = InfoCardData(
         id = "info_apps",
         title = "Installed Apps",
@@ -109,7 +94,7 @@ private val PreviewSnapshot = DashboardSnapshot(
     ),
 )
 
-@Preview(showBackground = true, backgroundColor = 0xFF0B1220, widthDp = 412, heightDp = 1480)
+@Preview(showBackground = true, backgroundColor = 0xFF0B1220, widthDp = 412, heightDp = 920)
 @Composable
 fun DashboardPreview() {
     NexCoreTheme {
@@ -124,7 +109,6 @@ fun DashboardPreview() {
             onHealthClick = {},
             onEditQuickActions = {},
             onQuickActionClick = {},
-            onViewStorageDetails = {},
             onInfoCardClick = {},
             onBottomNavClick = {},
         )

@@ -1,6 +1,7 @@
 package com.matox.nexcore.presentation.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -28,18 +30,18 @@ import com.matox.nexcore.domain.model.SystemMetric
 import com.matox.nexcore.presentation.dashboard.components.DashboardBottomBar
 import com.matox.nexcore.presentation.dashboard.components.DashboardTopBar
 import com.matox.nexcore.presentation.dashboard.components.DeviceHealthBanner
-import com.matox.nexcore.presentation.dashboard.components.GreetingSection
+import com.matox.nexcore.presentation.dashboard.components.GreetingWithScoreSection
 import com.matox.nexcore.presentation.dashboard.components.InfoCardsRow
 import com.matox.nexcore.presentation.dashboard.components.MetricsRow
-import com.matox.nexcore.presentation.dashboard.components.NexCoreScoreCard
 import com.matox.nexcore.presentation.dashboard.components.QuickActionsSection
-import com.matox.nexcore.presentation.dashboard.components.StorageUsageCard
-import com.matox.nexcore.presentation.dashboard.components.BatteryCard
 import com.matox.nexcore.presentation.dashboard.state.DashboardUiState
 import com.matox.nexcore.presentation.dashboard.viewmodel.DashboardViewModel
 import com.matox.nexcore.ui.theme.BackgroundGradientBottom
 import com.matox.nexcore.ui.theme.BackgroundGradientTop
 import com.matox.nexcore.ui.theme.TextPrimary
+
+/** Bottom padding under the scrollable content so it doesn't hide behind the floating dock. */
+private val BottomContentPadding: Dp = 120.dp
 
 @Composable
 fun DashboardScreen(
@@ -61,12 +63,19 @@ fun DashboardScreen(
         onHealthClick = {},
         onEditQuickActions = {},
         onQuickActionClick = {},
-        onViewStorageDetails = {},
         onInfoCardClick = {},
         onBottomNavClick = {},
     )
 }
 
+/**
+ * Render the dashboard with a fixed bottom navigation dock.
+ *
+ * Layout uses a Column at the root:
+ *  1. Background gradient (drawn first so it extends edge-to-edge)
+ *  2. Scrollable content (weighted to take all remaining space)
+ *  3. Bottom navigation dock (fixed at the bottom)
+ */
 @Composable
 internal fun DashboardContent(
     state: DashboardUiState,
@@ -79,12 +88,11 @@ internal fun DashboardContent(
     onHealthClick: () -> Unit,
     onEditQuickActions: () -> Unit,
     onQuickActionClick: (QuickAction) -> Unit,
-    onViewStorageDetails: () -> Unit,
     onInfoCardClick: (InfoCardData) -> Unit,
     onBottomNavClick: (BottomNavItem) -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -94,31 +102,46 @@ internal fun DashboardContent(
                         BackgroundGradientBottom,
                     ),
                 ),
-            )
-            .verticalScroll(rememberScrollState())
-            .padding(contentPadding),
+            ),
     ) {
-        DashboardTopBar(
-            onMenuClick = onMenuClick,
-            onSearchClick = onSearchClick,
-            onNotificationsClick = onNotificationsClick,
-        )
+        Column(
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            // Scrollable content above the bar (weight = 1f → takes all space)
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = contentPadding.calculateTopPadding())
+                    .padding(bottom = BottomContentPadding),
+            ) {
+                DashboardTopBar(
+                    onMenuClick = onMenuClick,
+                    onSearchClick = onSearchClick,
+                    onNotificationsClick = onNotificationsClick,
+                )
 
-        Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-        when (state) {
-            DashboardUiState.Loading -> LoadingState()
-            is DashboardUiState.Error -> ErrorState(state.message)
-            is DashboardUiState.Success -> ReadyState(
-                snapshot = state,
-                onInfoClick = onInfoClick,
-                onMetricClick = onMetricClick,
-                onHealthClick = onHealthClick,
-                onEditQuickActions = onEditQuickActions,
-                onQuickActionClick = onQuickActionClick,
-                onViewStorageDetails = onViewStorageDetails,
-                onInfoCardClick = onInfoCardClick,
-                onBottomNavClick = onBottomNavClick,
+                when (state) {
+                    DashboardUiState.Loading -> LoadingState()
+                    is DashboardUiState.Error -> ErrorState(state.message)
+                    is DashboardUiState.Success -> ReadyState(
+                        snapshot = state,
+                        onInfoClick = onInfoClick,
+                        onMetricClick = onMetricClick,
+                        onHealthClick = onHealthClick,
+                        onEditQuickActions = onEditQuickActions,
+                        onQuickActionClick = onQuickActionClick,
+                        onInfoCardClick = onInfoCardClick,
+                    )
+                }
+            }
+
+            // Fixed bottom navigation dock (always at the bottom, never scrolls)
+            DashboardBottomBar(
+                items = (state as? DashboardUiState.Success)?.snapshot?.bottomNav.orEmpty(),
+                onItemClick = onBottomNavClick,
             )
         }
     }
@@ -166,23 +189,15 @@ private fun ReadyState(
     onHealthClick: () -> Unit,
     onEditQuickActions: () -> Unit,
     onQuickActionClick: (QuickAction) -> Unit,
-    onViewStorageDetails: () -> Unit,
     onInfoCardClick: (InfoCardData) -> Unit,
-    onBottomNavClick: (BottomNavItem) -> Unit,
 ) {
     val data = snapshot.snapshot
 
-    // -- Greeting + score + metric cards ----------------------------------
-    GreetingSection(
+    // -- Greeting + NexCore Score (single row) ----------------------------
+    GreetingWithScoreSection(
         greeting = data.greeting,
-        modifier = Modifier.padding(top = 4.dp),
-    )
-
-    Spacer(modifier = Modifier.height(20.dp))
-
-    NexCoreScoreCard(
         score = data.nexCoreScore,
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier.padding(top = 4.dp),
         onInfoClick = onInfoClick,
     )
 
@@ -209,27 +224,8 @@ private fun ReadyState(
         onActionClick = onQuickActionClick,
     )
 
-    // -- Storage + Battery row -------------------------------------------
-    Spacer(modifier = Modifier.height(22.dp))
-    androidx.compose.foundation.layout.Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-    ) {
-        StorageUsageCard(
-            usage = data.storageUsage,
-            modifier = Modifier.weight(1f),
-            onViewDetailsClick = onViewStorageDetails,
-        )
-        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-        BatteryCard(
-            battery = data.battery,
-            modifier = Modifier.weight(1f),
-        )
-    }
-
     // -- Installed Apps / Data Usage / Notifications ---------------------
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(22.dp))
     InfoCardsRow(
         installedApps = data.installedApps,
         dataUsage = data.dataUsage,
@@ -237,13 +233,5 @@ private fun ReadyState(
         onClick = onInfoCardClick,
     )
 
-    Spacer(modifier = Modifier.height(20.dp))
-
-    // -- Bottom navigation ------------------------------------------------
-    DashboardBottomBar(
-        items = data.bottomNav,
-        onItemClick = onBottomNavClick,
-    )
-
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(12.dp))
 }

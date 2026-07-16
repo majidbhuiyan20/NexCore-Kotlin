@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.matox.nexcore.core.ui.components.IconChip
 import com.matox.nexcore.core.util.toColor
 import com.matox.nexcore.domain.model.InfoCardData
@@ -51,76 +53,88 @@ fun InfoCardView(
     val accent = data.accent.toColor()
     Column(
         modifier = modifier
+            .heightIn(min = 132.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(Surface)
             .border(1.dp, CardStroke, RoundedCornerShape(18.dp))
             .clickable(enabled = data.showChevron, onClick = onClick)
-            .padding(12.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconChip(
                 icon = icon,
                 accent = accent,
-                size = 28.dp,
-                iconSize = 14.dp,
+                size = 26.dp,
+                iconSize = 13.dp,
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = data.title,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                 color = TextSecondary,
+                maxLines = 1,
             )
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 text = data.bigValue,
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                ),
                 color = TextPrimary,
+                maxLines = 1,
             )
             if (data.unit != null) {
                 Spacer(modifier = Modifier.width(2.dp))
                 Text(
                     text = data.unit,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = TextSecondary,
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    modifier = Modifier.padding(bottom = 3.dp),
                 )
             }
         }
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = data.footnotePrimary,
             style = MaterialTheme.typography.bodySmall,
             color = TextPrimary,
+            maxLines = 1,
         )
         if (data.footnoteSecondary != null) {
             Text(
                 text = data.footnoteSecondary,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
+                maxLines = 1,
             )
         }
 
-        if (data.showChevron) {
-            Spacer(modifier = Modifier.height(2.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp),
-                )
+        Spacer(modifier = Modifier.weight(1f))
+
+        when {
+            data.showChevron -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
-        } else if (showBarChart) {
-            DataUsageBars(modifier = Modifier
-                .fillMaxWidth()
-                .height(34.dp))
+            showBarChart -> {
+                DataUsageBars(modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp))
+            }
         }
     }
 }
