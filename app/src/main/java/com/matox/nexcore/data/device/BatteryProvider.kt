@@ -260,7 +260,7 @@ class BatteryProvider(
         // shows up consistently on each render, but each app gets a
         // plausible percentage so the section is never empty.
         val apps = runCatching {
-            AppsProvider(appContext).snapshot().take(5)
+            AppsProvider(appContext).simpleList().take(5)
         }.getOrNull().orEmpty()
         if (apps.isEmpty()) return emptyList()
 

@@ -14,10 +14,12 @@ import com.matox.nexcore.domain.model.QuickAction
 import com.matox.nexcore.domain.model.QuickActionIcon
 import com.matox.nexcore.domain.model.ScoreStatus
 import com.matox.nexcore.domain.model.UserGreeting
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * Local data source that emits a dashboard snapshot.
@@ -38,6 +40,10 @@ interface DashboardLocalDataSource {
  * battery manager, storage stats, etc.
  */
 class FakeDashboardLocalDataSource : DashboardLocalDataSource {
+
+    /** Synchronous build — used at service-locator init time so we
+     *  don't need `runBlocking` on the main thread. */
+    fun snapshotNow(): DashboardSnapshot = buildSnapshot(DeviceMetrics())
 
     override fun snapshot(): Flow<DashboardSnapshot> = flow {
         emit(buildSnapshot(DeviceMetrics()))
@@ -129,7 +135,7 @@ class LiveDashboardLocalDataSource(
     private val base: DashboardSnapshot,
     private val provider: DeviceMetricsProvider,
     private val installedAppsCountFlow: Flow<InstalledAppsCount>? = null,
-    private val pollIntervalMs: Long = 3_000L,
+    private val pollIntervalMs: Long = 5_000L,
 ) : DashboardLocalDataSource {
 
     override fun snapshot(): Flow<DashboardSnapshot> {
@@ -154,7 +160,7 @@ class LiveDashboardLocalDataSource(
             } else {
                 withMetrics
             }
-        }
+        }.flowOn(Dispatchers.IO)
     }
 
     private fun buildInstalledAppsCard(count: InstalledAppsCount): InfoCardData = InfoCardData(

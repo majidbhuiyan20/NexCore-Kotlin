@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.withContext
 
@@ -20,8 +21,13 @@ import kotlinx.coroutines.withContext
  *
  * [refreshNow] unblocks the polling loop immediately for manual
  * refreshes. [refreshPublicIp] fires the one-shot HTTPS public-IP
- * lookup on a background dispatcher and re-emits the next snapshot
- * with the new public IP filled in.
+ * lookup on the IO dispatcher and re-emits the next snapshot with
+ * the new public IP filled in.
+ *
+ * **Off-main-thread.** Every snapshot / public-IP read is wrapped in
+ * `withContext(Dispatchers.IO)` and the whole flow is `flowOn(IO)`
+ * so the UI thread never blocks on WifiManager / ConnectivityManager
+ * / HTTPS round-trips.
  */
 class WifiRepositoryImpl(
     private val provider: WifiProvider,
@@ -38,7 +44,7 @@ class WifiRepositoryImpl(
 
     override fun observeSnapshot(): Flow<WifiSnapshot> = channelFlow {
         // First emit immediately.
-        runCatching { send(provider.snapshot().copy(publicIp = lastPublicIp)) }
+        runCatching { send(safeSnapshot().copy(publicIp = lastPublicIp)) }
 
         val ticker = flow {
             while (true) {
@@ -55,16 +61,16 @@ class WifiRepositoryImpl(
             val ip = withContext(Dispatchers.IO) { provider.fetchPublicIp() }
             if (ip != null) {
                 lastPublicIp = ip
-                runCatching { send(provider.snapshot().copy(publicIp = ip)) }
+                runCatching { send(safeSnapshot().copy(publicIp = ip)) }
             }
         }
 
         merge(ticker, refresher).collect {
-            runCatching { send(provider.snapshot().copy(publicIp = lastPublicIp)) }
+            runCatching { send(safeSnapshot().copy(publicIp = lastPublicIp)) }
         }
 
         ipWorker // keep the lambda referenced
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun refreshNow() {
         refreshRequests.send(Unit)
@@ -73,6 +79,9 @@ class WifiRepositoryImpl(
     override suspend fun refreshPublicIp() {
         publicIpRefreshes.send(Unit)
     }
+
+    private suspend fun safeSnapshot(): WifiSnapshot =
+        withContext(Dispatchers.IO) { provider.snapshot() }
 
     companion object {
         /** 3 s cadence — RSSI / link speed change slowly. */

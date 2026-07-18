@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.launch
 
 class AppManagerViewModel(
     private val repository: AppManagerRepository,
@@ -55,17 +54,15 @@ class AppManagerViewModel(
     fun refresh() = loadApps()
 
     private fun loadApps() {
-        viewModelScope.launch {
-            repository.observeApps()
-                .catch { t ->
-                    _uiState.value = AppManagerUiState.Error(t.message ?: "Failed to load apps")
-                }
-                .onEach { (apps, fromCache) ->
-                    allApps.value = apps
-                    isFromCache.value = fromCache
-                }
-                .launchIn(viewModelScope)
-        }
+        repository.observeApps()
+            .catch { t ->
+                _uiState.value = AppManagerUiState.Error(t.message ?: "Failed to load apps")
+            }
+            .onEach { (apps, fromCache) ->
+                allApps.value = apps
+                isFromCache.value = fromCache
+            }
+            .launchIn(viewModelScope)
     }
 
     private fun observeInputs() {

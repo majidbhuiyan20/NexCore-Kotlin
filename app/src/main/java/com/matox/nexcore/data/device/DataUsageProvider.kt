@@ -191,7 +191,7 @@ class DataUsageProvider(
      */
     private fun readTopAppsFallback(): List<AppDataUsage> {
         val apps = runCatching {
-            AppsProvider(appContext).snapshot().take(5)
+            AppsProvider(appContext).simpleList().take(5)
         }.getOrNull().orEmpty()
         if (apps.isEmpty()) return emptyList()
 

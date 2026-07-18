@@ -3,27 +3,27 @@ package com.matox.nexcore.data.repository
 import com.matox.nexcore.data.device.BatteryProvider
 import com.matox.nexcore.domain.model.BatterySnapshot
 import com.matox.nexcore.domain.repository.BatteryRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.withContext
 
 /**
  * Polls [BatteryProvider.snapshot] every [POLL_INTERVAL_MS] and emits
- * the result. The provider's own rolling history buffers accumulate
- * samples between emissions, so successive emissions append one more
- * point to the level and temperature charts on the detail screen.
+ * the result.
  *
- * Errors are caught silently and the loop continues — a single failed
- * read should not blank the chart. The provider itself caches the
- * last good snapshot, so callers keep getting data even on transient
- * failures.
+ * **Off-main-thread snapshot.** `BatteryProvider.snapshot()` calls
+ * `UsageStatsManager.queryUsageStats` and `PackageManager.getApplicationInfo`
+ * for top-app enrichment. We `flowOn(Dispatchers.IO)` so the
+ * snapshot runs on the IO pool.
  *
- * [refreshNow] unblocks the polling loop immediately so manual
- * refresh requests don't have to wait for the next tick.
+ * [refreshNow] unblocks the polling loop immediately.
  */
 class BatteryRepositoryImpl(
     private val provider: BatteryProvider,
@@ -33,7 +33,7 @@ class BatteryRepositoryImpl(
 
     override fun observeSnapshot(): Flow<BatterySnapshot> = channelFlow {
         // First emit immediately so the UI doesn't have to wait 3 s.
-        runCatching { send(provider.snapshot()) }
+        runCatching { send(safeSnapshot()) }
 
         val ticker = flow {
             while (true) {
@@ -44,16 +44,19 @@ class BatteryRepositoryImpl(
         val refresher = refreshRequests.consumeAsFlow()
 
         merge(ticker, refresher).collect {
-            runCatching { send(provider.snapshot()) }
+            runCatching { send(safeSnapshot()) }
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun refreshNow() {
         refreshRequests.send(Unit)
     }
 
+    private suspend fun safeSnapshot(): BatterySnapshot =
+        withContext(Dispatchers.IO) { provider.snapshot() }
+
     companion object {
-        /** 3 s cadence — same as the RAM detail screen. */
+        /** 3 s cadence — battery levels change slowly. */
         private const val POLL_INTERVAL_MS: Long = 3_000L
     }
 }

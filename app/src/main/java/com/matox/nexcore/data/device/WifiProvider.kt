@@ -194,7 +194,10 @@ class WifiProvider(
     }
 
     private fun readAppTraffic(): List<AppTrafficRow> {
-        val apps = runCatching { AppsProvider(appContext).snapshot() }.getOrNull().orEmpty()
+        // Use the slim, icon-free list — the heavy `snapshot()` decodes
+        // every app's icon bitmap and we don't need them here (the VM
+        // loads icons lazily per visible row).
+        val apps = runCatching { AppsProvider(appContext).simpleList() }.getOrNull().orEmpty()
         return apps.take(20).mapNotNull { info ->
             val uid = runCatching {
                 appContext.packageManager.getApplicationInfo(info.packageName, 0).uid

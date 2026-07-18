@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -119,6 +120,15 @@ fun RamHeroCard(
     val freeMb = (snapshot.availableGb * 1024f).toLong().coerceAtLeast(0L)
     val cachedMb = snapshot.cachedMb.coerceAtLeast(0L)
 
+    // Memoized card brushes — recomputed only when the colors they
+    // build from change; keeps the per-tick recomposition cheap.
+    val surfaceBrush = remember {
+        Brush.verticalGradient(colors = listOf(Surface, Surface.copy(alpha = 0.92f)))
+    }
+    val glassBrush = remember {
+        Brush.verticalGradient(colors = listOf(GlassHighlight, Color.Transparent))
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -129,14 +139,7 @@ fun RamHeroCard(
                 spotColor = Color.Black.copy(alpha = 0.45f),
             )
             .clip(RoundedCornerShape(24.dp))
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Surface,
-                        Surface.copy(alpha = 0.92f),
-                    ),
-                ),
-            )
+            .background(brush = surfaceBrush)
             .border(1.dp, CardStroke, RoundedCornerShape(24.dp)),
     ) {
         // Glass highlight along the top edge.
@@ -144,11 +147,7 @@ fun RamHeroCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(60.dp)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(GlassHighlight, Color.Transparent),
-                    ),
-                ),
+                .background(brush = glassBrush),
         )
 
         Column(modifier = Modifier.padding(20.dp)) {

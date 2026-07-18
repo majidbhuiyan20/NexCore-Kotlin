@@ -5,12 +5,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.matox.nexcore.domain.repository.PhoneInfoRepository
 import com.matox.nexcore.presentation.phoneinfo.state.PhoneInfoUiState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class PhoneInfoViewModel(
     private val repository: PhoneInfoRepository,
@@ -31,7 +29,7 @@ class PhoneInfoViewModel(
     fun refresh() {
         viewModelScope.launch {
             try {
-                val snapshot = withContext(Dispatchers.IO) { repository.snapshot() }
+                val snapshot = repository.snapshot()
                 _uiState.value = PhoneInfoUiState.Success(snapshot)
             } catch (t: Throwable) {
                 _uiState.value = PhoneInfoUiState.Error(t.message ?: "Failed to read phone info")

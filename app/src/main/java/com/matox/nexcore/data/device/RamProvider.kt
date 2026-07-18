@@ -333,9 +333,11 @@ class RamProvider(
     private fun readTopApps(am: ActivityManager): List<AppRamUsage> {
         val pm = appContext.packageManager
 
-        // 1. Index on-disk footprint by package — available for every
-        //    installed app via PackageManager.
-        val onDiskByPkg = indexOnDiskFootprint(pm)
+        // 1. Index on-disk footprint by package — via the TTL cache so
+        //    every poll cycle after the first doesn't re-walk every
+        //    dataDir tree (was the #1 cold-frame-stutter source).
+        val (onDiskByPkg, labelsByPkg, isSystemByPkg) =
+            InstalledAppsFootprintCache.footprint(appContext)
 
         // 2. Build a PSS map keyed by package from ActivityManager
         //    (only the processes we can see get a non-zero entry).
@@ -355,18 +357,10 @@ class RamProvider(
         // Seed with on-disk footprints so background apps appear.
         for ((pkg, mb) in onDiskByPkg) {
             if (mb <= 0L) continue
-            val info = runCatching { pm.getApplicationInfo(pkg, 0) }.getOrNull()
-            val label = if (info != null) {
-                runCatching { pm.getApplicationLabel(info).toString() }
-                    .getOrDefault(pkg)
-            } else pkg
-            val isSystem = info?.let {
-                (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            } ?: false
             byPkg[pkg] = Aggregate(
                 packageName = pkg,
-                displayName = label,
-                isSystem = isSystem,
+                displayName = labelsByPkg[pkg] ?: pkg,
+                isSystem = isSystemByPkg[pkg] ?: false,
                 pssMb = mb,
                 hasRealPss = false,
             )
@@ -419,43 +413,12 @@ class RamProvider(
      * `packageName → MB`. Pure filesystem read + PackageManager
      * metadata — no runtime permission needed.
      *
-     * Excludes our own process so it doesn't appear in the list.
+     * **Delegated to [InstalledAppsFootprintCache]** which caches the
+     * result for 30 s, so the 3-second RAM poll doesn't re-walk every
+     * dataDir tree on every tick.
      */
-    private fun indexOnDiskFootprint(pm: PackageManager): Map<String, Long> {
-        val out = HashMap<String, Long>()
-        val apps = runCatching {
-            pm.getInstalledApplications(0)
-        }.getOrNull() ?: return out
-        val ourPkg = appContext.packageName
-        for (info in apps) {
-            val pkg = info.packageName
-            if (pkg == ourPkg) continue
-            var bytes = 0L
-            info.sourceDir?.let { p ->
-                runCatching { bytes += File(p).length() }
-            }
-            // dataDir = /data/data/<pkg> (or /data/user/0/<pkg>) —
-            // includes the app's own files + cache.
-            runCatching {
-                val dataDir = info.dataDir
-                if (!dataDir.isNullOrBlank()) {
-                    val dir = File(dataDir)
-                    if (dir.exists()) {
-                        // Sum of every file under the data dir.
-                        // walkTopDown caps recursion at any
-                        // pathological depth but is fine for normal
-                        // apps.
-                        dir.walkTopDown().forEach { f ->
-                            if (f.isFile) bytes += f.length()
-                        }
-                    }
-                }
-            }
-            if (bytes > 0L) {
-                out[pkg] = bytes / (1024L * 1024L)
-            }
-        }
-        return out
+    private fun indexOnDiskFootprint(@Suppress("UNUSED_PARAMETER") pm: PackageManager): Map<String, Long> {
+        return InstalledAppsFootprintCache.footprint(appContext).first
     }
 
     /**

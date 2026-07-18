@@ -99,15 +99,19 @@ class LiveAppManagerDataSource(
         .onStart { ensurePackageReceiver() }
 
     override fun observeInstalledAppsCount(): Flow<InstalledAppsCount> = callbackFlow {
-        trySend(provider.count())
+        // Initial count runs on IO so the first emission doesn't block
+        // the main thread while PackageManager enumerates installed apps.
+        launch(Dispatchers.IO) { trySend(provider.count()) }.also { it.join() }
 
         val handler = Handler(Looper.getMainLooper())
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 handler.removeCallbacksAndMessages(null)
                 handler.postDelayed({
-                    trySend(provider.count())
-                    packageEvents.tryEmit(Unit)
+                    launch(Dispatchers.IO) {
+                        trySend(provider.count())
+                        packageEvents.tryEmit(Unit)
+                    }
                 }, 250L)
             }
         }

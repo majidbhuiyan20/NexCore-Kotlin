@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,9 +86,11 @@ fun DeviceHealthBanner(
  */
 @Composable
 private fun ShieldIllustration(modifier: Modifier = Modifier) {
-    val shieldBrush = Brush.verticalGradient(
-        colors = listOf(NexCoreGreen, NexCoreGreenAccent, NexCoreGreenDark),
-    )
+    val shieldBrush = remember {
+        Brush.verticalGradient(
+            colors = listOf(NexCoreGreen, NexCoreGreenAccent, NexCoreGreenDark),
+        )
+    }
     val glow = NexCoreGreen.copy(alpha = 0.55f)
     Box(modifier = modifier) {
         Canvas(modifier = Modifier.fillMaxSize()) {

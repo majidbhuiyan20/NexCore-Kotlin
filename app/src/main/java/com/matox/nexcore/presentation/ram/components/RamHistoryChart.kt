@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -81,7 +82,7 @@ fun RamHistoryChart(
         targetValue = 2.2f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 1600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
+            repeatMode = RepeatMode.Reverse,
         ),
         label = "ram-chart-pulse-scale",
     )
@@ -90,7 +91,7 @@ fun RamHistoryChart(
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 1600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
+            repeatMode = RepeatMode.Reverse,
         ),
         label = "ram-chart-pulse-alpha",
     )
@@ -183,132 +184,92 @@ fun RamHistoryChart(
                         modifier = Modifier.align(Alignment.Center),
                     )
                 } else {
-                    Canvas(modifier = Modifier.fillMaxWidth().height(172.dp)) {
-                        val w = size.width
-                        val h = size.height
-                        val padX = 8f
-                        val padY = 8f
-                        val plotW = w - padX * 2
-                        val plotH = h - padY * 2
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(172.dp)
+                            .drawWithCache {
+                                val w = size.width
+                                val h = size.height
+                                val padX = 8f
+                                val padY = 8f
+                                val plotW = w - padX * 2
+                                val plotH = h - padY * 2
 
-                        // Background grid (5 horizontal lines).
-                        val gridColor = Color(0xFF1F2A44)
-                        for (i in 0..4) {
-                            val y = padY + plotH * (i / 4f)
-                            drawLine(
-                                color = gridColor,
-                                start = Offset(padX, y),
-                                end = Offset(padX + plotW, y),
-                                strokeWidth = 1f,
-                            )
-                        }
+                                val cached = buildChartPaths(history, padX, padY, plotW, plotH)
 
-                        // Samples → (x, y)
-                        val n = history.size
-                        val stepX = if (n <= 1) 0f else plotW / (n - 1)
-                        val points = history.mapIndexed { idx, pct ->
-                            val x = padX + stepX * idx
-                            val y = padY + plotH * (1f - pct.coerceIn(0, 100) / 100f)
-                            Offset(x, y)
-                        }
+                                onDrawBehind {
+                                    val gridColor = Color(0xFF1F2A44)
+                                    for (i in 0..4) {
+                                        val y = padY + plotH * (i / 4f)
+                                        drawLine(
+                                            color = gridColor,
+                                            start = Offset(padX, y),
+                                            end = Offset(padX + plotW, y),
+                                            strokeWidth = 1f,
+                                        )
+                                    }
 
-                        // Smooth cubic path.
-                        val path = Path()
-                        if (points.isNotEmpty()) {
-                            path.moveTo(points.first().x, points.first().y)
-                            for (i in 0 until points.lastIndex) {
-                                val p0 = points[i]
-                                val p1 = points[i + 1]
-                                val midX = (p0.x + p1.x) / 2f
-                                path.cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
-                            }
-                        }
+                                    val points = cached.points
+                                    val path = cached.path
+                                    val fillPath = cached.fillPath
 
-                        // Area fill — 3-stop gradient (cyan → blue → near-transparent).
-                        val fillPath = Path().apply {
-                            addPath(path)
-                            if (points.isNotEmpty()) {
-                                lineTo(points.last().x, padY + plotH)
-                                lineTo(points.first().x, padY + plotH)
-                                close()
-                            }
-                        }
-                        drawPath(
-                            path = fillPath,
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    MetricCyan.copy(alpha = 0.55f),
-                                    MetricBlue.copy(alpha = 0.30f),
-                                    MetricViolet.copy(alpha = 0.05f),
-                                ),
-                                startY = padY,
-                                endY = padY + plotH,
-                            ),
-                        )
+                                    drawPath(path = fillPath, brush = cached.fillBrush)
+                                    drawPath(
+                                        path = path,
+                                        color = MetricCyan.copy(alpha = 0.30f),
+                                        style = Stroke(width = 9f),
+                                    )
+                                    drawPath(
+                                        path = path,
+                                        brush = cached.lineBrush,
+                                        style = Stroke(width = 3f),
+                                    )
 
-                        // Soft under-stroke (halo).
-                        drawPath(
-                            path = path,
-                            color = MetricCyan.copy(alpha = 0.30f),
-                            style = Stroke(width = 9f),
-                        )
-                        // Crisp top line — cyan → blue → violet gradient.
-                        drawPath(
-                            path = path,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(MetricCyan, MetricBlue, MetricViolet),
-                            ),
-                            style = Stroke(width = 3f),
-                        )
+                                    for ((idx, p) in points.withIndex()) {
+                                        if (idx == points.lastIndex) continue
+                                        drawCircle(
+                                            color = MetricCyan.copy(alpha = 0.7f),
+                                            radius = 2.2f,
+                                            center = p,
+                                        )
+                                    }
 
-                        // Per-sample dots (skip the latest — drawn separately).
-                        for ((idx, p) in points.withIndex()) {
-                            if (idx == points.lastIndex) continue
-                            drawCircle(
-                                color = MetricCyan.copy(alpha = 0.7f),
-                                radius = 2.2f,
-                                center = p,
-                            )
-                        }
-
-                        // Latest sample — pulse + halo + core.
-                        val last = points.last()
-                        // Vertical hairline at the rightmost sample.
-                        drawLine(
-                            color = MetricCyan.copy(alpha = 0.45f),
-                            start = Offset(last.x, padY),
-                            end = Offset(last.x, padY + plotH),
-                            strokeWidth = 1.5f,
-                        )
-                        // Outer expanding pulse rings.
-                        drawCircle(
-                            color = MetricCyan.copy(alpha = pulseAlpha * 0.7f),
-                            radius = 7f * pulseScale,
-                            center = last,
-                        )
-                        drawCircle(
-                            color = MetricBlue.copy(alpha = pulseAlpha * 0.4f),
-                            radius = 10f * pulseScale,
-                            center = last,
-                        )
-                        // Static halo.
-                        drawCircle(
-                            color = MetricBlue.copy(alpha = 0.30f),
-                            radius = 11f,
-                            center = last,
-                        )
-                        // Core dot.
-                        drawCircle(
-                            color = Color.White,
-                            radius = 5.5f,
-                            center = last,
-                        )
-                        drawCircle(
-                            color = MetricBlue,
-                            radius = 4f,
-                            center = last,
-                        )
-                    }
+                                    val last = points.last()
+                                    drawLine(
+                                        color = MetricCyan.copy(alpha = 0.45f),
+                                        start = Offset(last.x, padY),
+                                        end = Offset(last.x, padY + plotH),
+                                        strokeWidth = 1.5f,
+                                    )
+                                    drawCircle(
+                                        color = MetricCyan.copy(alpha = pulseAlpha * 0.7f),
+                                        radius = 7f * pulseScale,
+                                        center = last,
+                                    )
+                                    drawCircle(
+                                        color = MetricBlue.copy(alpha = pulseAlpha * 0.4f),
+                                        radius = 10f * pulseScale,
+                                        center = last,
+                                    )
+                                    drawCircle(
+                                        color = MetricBlue.copy(alpha = 0.30f),
+                                        radius = 11f,
+                                        center = last,
+                                    )
+                                    drawCircle(
+                                        color = Color.White,
+                                        radius = 5.5f,
+                                        center = last,
+                                    )
+                                    drawCircle(
+                                        color = MetricBlue,
+                                        radius = 4f,
+                                        center = last,
+                                    )
+                                }
+                            },
+                    )
                 }
             }
 
@@ -337,3 +298,71 @@ fun RamHistoryChart(
 // "AI insight overlay" toggle on the chart.
 @Suppress("unused")
 private val _keep: Any = Icons.Outlined.AutoAwesome
+
+/**
+ * Memoized chart geometry — recomputed only when the history list
+ * size changes. Holds the precomputed sample→screen points, the
+ * smooth cubic path, the closed area-fill path, and the gradient
+ * brushes used by the line + fill. This is the single biggest
+ * per-frame allocation site in the RAM screen: a 1200-point history
+ * means 1200 Offset objects + 3 Paths + 2 Brushes per frame
+ * otherwise.
+ */
+private data class ChartPaths(
+    val points: List<Offset>,
+    val path: Path,
+    val fillPath: Path,
+    val fillBrush: Brush,
+    val lineBrush: Brush,
+)
+
+private fun buildChartPaths(
+    history: List<Int>,
+    padX: Float,
+    padY: Float,
+    plotW: Float,
+    plotH: Float,
+): ChartPaths {
+    val n = history.size
+    val stepX = if (n <= 1) 0f else plotW / (n - 1)
+    val points = List(n) { idx ->
+        val pct = history[idx].coerceIn(0, 100)
+        Offset(padX + stepX * idx, padY + plotH * (1f - pct / 100f))
+    }
+
+    val path = Path().apply {
+        if (points.isNotEmpty()) {
+            moveTo(points.first().x, points.first().y)
+            for (i in 0 until points.lastIndex) {
+                val p0 = points[i]
+                val p1 = points[i + 1]
+                val midX = (p0.x + p1.x) / 2f
+                cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
+            }
+        }
+    }
+
+    val fillPath = Path().apply {
+        addPath(path)
+        if (points.isNotEmpty()) {
+            lineTo(points.last().x, padY + plotH)
+            lineTo(points.first().x, padY + plotH)
+            close()
+        }
+    }
+
+    val fillBrush = Brush.verticalGradient(
+        colors = listOf(
+            MetricCyan.copy(alpha = 0.55f),
+            MetricBlue.copy(alpha = 0.30f),
+            MetricViolet.copy(alpha = 0.05f),
+        ),
+        startY = padY,
+        endY = padY + plotH,
+    )
+    val lineBrush = Brush.horizontalGradient(
+        colors = listOf(MetricCyan, MetricBlue, MetricViolet),
+    )
+
+    return ChartPaths(points, path, fillPath, fillBrush, lineBrush)
+}

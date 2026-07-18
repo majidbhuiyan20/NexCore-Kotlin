@@ -39,6 +39,36 @@ class AppsProvider(
         }.sortedBy { it.displayName.lowercase() }
     }
 
+    /**
+     * Icon-free rollup of every installed app. Used by `WifiProvider`
+     * and `DataUsageProvider` where we only need packageName +
+     * displayName (icons are loaded later per-row by the VM, lazily).
+     *
+     * Skips the expensive `getApplicationLabel` + `getApplicationInfo`
+     * round-trip where the cached package list is enough.
+     */
+    fun simpleList(): List<AppInfo> {
+        val pm = appContext.packageManager
+        val apps = runCatching { pm.getInstalledApplications(0) }
+            .getOrElse { return emptyList() }
+        return apps.mapNotNull { info ->
+            val pkg = info.packageName
+            val label = runCatching { pm.getApplicationLabel(info).toString() }
+                .getOrDefault(pkg)
+            AppInfo(
+                packageName = pkg,
+                displayName = label,
+                versionName = "—",
+                categoryLabel = "",
+                sizeBytes = 0L,
+                lastUpdatedEpochMs = 0L,
+                isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
+                hasLauncher = false,
+                iconRef = AppIconRef.Failed,
+            )
+        }
+    }
+
     /** Cheap count rollup (no icons, no version lookups). */
     fun count(): InstalledAppsCount {
         val pm = appContext.packageManager

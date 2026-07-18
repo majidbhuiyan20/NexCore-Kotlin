@@ -36,99 +36,99 @@ import com.matox.nexcore.domain.repository.RamRepository
 import com.matox.nexcore.domain.repository.SensorRepository
 import com.matox.nexcore.domain.repository.StorageAnalyzerRepository
 import com.matox.nexcore.domain.repository.WifiRepository
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Tiny service locator. In a production project this would be replaced
  * by Hilt / Koin — kept dependency-free here for clarity.
  *
- * Initialised once from `NexCoreApplication.onCreate()` with the
- * application context. All repositories are eagerly built because
- * none of them perform blocking work — flows expose the live data.
+ * **Cold-start fast path.** `init(appContext)` only stores the
+ * application context and pre-builds the lightweight providers (no
+ * I/O). The expensive repositories are lazily built on first access
+ * via [T::provide], so the dashboard doesn't pay for the WiFi
+ * analyzer / Sensor Monitor / Data Usage providers until the user
+ * actually opens those screens.
+ *
+ * **No `runBlocking`.** Earlier revisions called `runBlocking` here to
+ * pre-emit the static dashboard base snapshot. That's bad on
+ * `Application.onCreate` — the main thread stalls for tens of ms and
+ * the splash screen hitches. We now build the static base snapshot
+ * synchronously from in-memory data only (no I/O).
  */
 object AppContainer {
 
-    @Volatile private var initialized: Boolean = false
+    @Volatile private var appContext: Context? = null
 
-    lateinit var dashboardRepository: DashboardRepository
-        private set
-    lateinit var storageAnalyzerRepository: StorageAnalyzerRepository
-        private set
-    lateinit var appManagerRepository: AppManagerRepository
-        private set
-    lateinit var phoneInfoRepository: PhoneInfoRepository
-        private set
-    lateinit var ramRepository: RamRepository
-        private set
-    lateinit var batteryRepository: BatteryRepository
-        private set
-    lateinit var cpuRepository: CpuRepository
-        private set
-    lateinit var dataUsageRepository: DataUsageRepository
-        private set
-    lateinit var wifiRepository: WifiRepository
-        private set
-    lateinit var sensorRepository: SensorRepository
-        private set
-    lateinit var sensorProvider: SensorProvider
-        private set
-    lateinit var appIconLoader: AppIconLoader
-        private set
+    /** Providers (no I/O on construction) — built once on first access. */
+    private val deviceProvider by lazy { DeviceMetricsProvider(requireContext()) }
+    private val storageProvider by lazy { StorageAnalyzerProvider(requireContext()) }
+    private val appsProvider by lazy { AppsProvider(requireContext()) }
+    private val appsDataSource by lazy { LiveAppManagerDataSource(requireContext(), appsProvider) }
+    private val phoneInfoProvider by lazy { PhoneInfoProvider(requireContext()) }
+    private val ramProvider by lazy { RamProvider(requireContext()) }
+    private val batteryProvider by lazy { BatteryProvider(requireContext()) }
+    private val cpuProvider by lazy { CpuProvider(requireContext(), deviceProvider) }
+    private val dataUsageProvider by lazy { DataUsageProvider(requireContext()) }
+    private val wifiProvider by lazy { WifiProvider(requireContext()) }
+    private val sensorProviderLocal by lazy { SensorProvider(requireContext()) }
+    private val iconLoader by lazy { AppIconLoader(requireContext()) }
+
+    /** Repositories — built lazily so each screen only pays for itself. */
+    val dashboardRepository: DashboardRepository by lazy {
+        DashboardRepositoryImpl(
+            localDataSource = LiveDashboardLocalDataSource(
+                base = FakeDashboardLocalDataSource().snapshotNow(),
+                provider = deviceProvider,
+                installedAppsCountFlow = appsDataSource.observeInstalledAppsCount(),
+            ),
+        )
+    }
+    val storageAnalyzerRepository: StorageAnalyzerRepository by lazy {
+        StorageAnalyzerRepositoryImpl(
+            dataSource = LiveStorageAnalyzerDataSource(storageProvider),
+        )
+    }
+    val appManagerRepository: AppManagerRepository by lazy {
+        AppManagerRepositoryImpl(appsDataSource)
+    }
+    val phoneInfoRepository: PhoneInfoRepository by lazy {
+        PhoneInfoRepositoryImpl(phoneInfoProvider)
+    }
+    val ramRepository: RamRepository by lazy { RamRepositoryImpl(ramProvider) }
+    val batteryRepository: BatteryRepository by lazy { BatteryRepositoryImpl(batteryProvider) }
+    val cpuRepository: CpuRepository by lazy { CpuRepositoryImpl(cpuProvider) }
+    val dataUsageRepository: DataUsageRepository by lazy {
+        DataUsageRepositoryImpl(dataUsageProvider)
+    }
+    val wifiRepository: WifiRepository by lazy { WifiRepositoryImpl(wifiProvider) }
+    val sensorRepository: SensorRepository by lazy {
+        SensorRepositoryImpl(sensorProviderLocal)
+    }
+
+    /**
+     * Backwards-compat accessor used by [SensorScreen] — exposes the
+     * underlying provider so the ViewModel can register / unregister
+     * its own `SensorEventListener`. Lazy-built alongside the sensor
+     * repository.
+     */
+    val sensorProvider: SensorProvider get() = sensorProviderLocal
+
+    val appIconLoader: AppIconLoader by lazy { iconLoader }
 
     /** Live installed-apps count shared with the home dashboard. */
-    val installedAppsCountFlow
-        get() = if (initialized) (appManagerRepository.observeInstalledAppsCount())
-        else throw IllegalStateException("AppContainer not initialised")
+    val installedAppsCountFlow: Flow<*> get() = appManagerRepository.observeInstalledAppsCount()
 
+    /**
+     * Called once from `NexCoreApplication.onCreate`. Stores the
+     * application context and lets the lazy initialisers take over
+     * from there. Deliberately does **no I/O** — anything that touches
+     * PackageManager, BatteryManager, /proc, etc. is deferred to the
+     * lazy getters.
+     */
     fun init(appContext: Context) {
-        if (initialized) return
-        synchronized(this) {
-            if (initialized) return
-            val context = appContext.applicationContext
-
-            // Build the static base snapshot once (the underlying Flow
-            // emission is synchronous so runBlocking is fine here).
-            val baseSnapshot = runBlocking {
-                FakeDashboardLocalDataSource().snapshot().first()
-            }
-
-            val deviceProvider = DeviceMetricsProvider(context)
-            val storageProvider = StorageAnalyzerProvider(context)
-            val appsProvider = AppsProvider(context)
-            val appsDataSource = LiveAppManagerDataSource(context, appsProvider)
-            val phoneInfoProvider = PhoneInfoProvider(context)
-            val ramProvider = RamProvider(context)
-            val batteryProvider = BatteryProvider(context)
-            val cpuProvider = CpuProvider(context, deviceProvider)
-            val dataUsageProvider = DataUsageProvider(context)
-            val wifiProvider = WifiProvider(context)
-            val sensorProvider = SensorProvider(context)
-            val iconLoader = AppIconLoader(context)
-
-            // The dashboard needs the live installed-apps count.
-            dashboardRepository = DashboardRepositoryImpl(
-                localDataSource = LiveDashboardLocalDataSource(
-                    base = baseSnapshot,
-                    provider = deviceProvider,
-                    installedAppsCountFlow = appsDataSource.observeInstalledAppsCount(),
-                ),
-            )
-            storageAnalyzerRepository = StorageAnalyzerRepositoryImpl(
-                dataSource = LiveStorageAnalyzerDataSource(storageProvider),
-            )
-            appManagerRepository = AppManagerRepositoryImpl(appsDataSource)
-            phoneInfoRepository = PhoneInfoRepositoryImpl(phoneInfoProvider)
-            ramRepository = RamRepositoryImpl(ramProvider)
-            batteryRepository = BatteryRepositoryImpl(batteryProvider)
-            cpuRepository = CpuRepositoryImpl(cpuProvider)
-            dataUsageRepository = DataUsageRepositoryImpl(dataUsageProvider)
-            wifiRepository = WifiRepositoryImpl(wifiProvider)
-            sensorRepository = SensorRepositoryImpl(sensorProvider)
-            this.sensorProvider = sensorProvider
-            appIconLoader = iconLoader
-
-            initialized = true
-        }
+        this.appContext = appContext.applicationContext
     }
+
+    private fun requireContext(): Context =
+        appContext ?: error("AppContainer.init() not called yet")
 }
